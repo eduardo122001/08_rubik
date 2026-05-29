@@ -160,6 +160,36 @@ namespace myglm
         }
     };
 
+    inline vec4 operator*(const mat4 &m, const vec4 &v)
+{
+    vec4 r;
+
+    r.x =
+        m.m[0][0] * v.x +
+        m.m[1][0] * v.y +
+        m.m[2][0] * v.z +
+        m.m[3][0] * v.w;
+
+    r.y =
+        m.m[0][1] * v.x +
+        m.m[1][1] * v.y +
+        m.m[2][1] * v.z +
+        m.m[3][1] * v.w;
+
+    r.z =
+        m.m[0][2] * v.x +
+        m.m[1][2] * v.y +
+        m.m[2][2] * v.z +
+        m.m[3][2] * v.w;
+
+    r.w =
+        m.m[0][3] * v.x +
+        m.m[1][3] * v.y +
+        m.m[2][3] * v.z +
+        m.m[3][3] * v.w;
+
+    return r;
+}
     inline const float *value_ptr(const vec4 &v) { return &v.x; }
     inline const float *value_ptr(const mat4 &m) { return &m.m[0][0]; }
 

@@ -77,7 +77,7 @@ public:
 	unsigned int lastShaderProgram = 0;
 
 	bool isVisible = true;
-	bool iscube = false;
+
 	bool rotateAroundOrigin = false;
 
 	myglm::vec3 translation = myglm::vec3(0.0f, 0.0f, 0.0f);
@@ -89,8 +89,6 @@ public:
 
 	bool isDirty = true;
 	myglm::mat4 lastModel = myglm::mat4(1.0f);
-	myglm::mat4 orientation = myglm::mat4(1.0f);
-
 	void swapVisibility()
 	{
 		isVisible = !isVisible;
@@ -236,37 +234,7 @@ public:
 	{
 		if (isDirty)
 		{
-			if (iscube)
-			{
-				std::cout << "singlecubetransformmatrix\n";
-				if (isDirty)
-				{
-					if (rotateAroundOrigin)
-					{
-						lastModel = myglm::mat4(1.0f);
-
-						lastModel = lastModel * orientation;
-						lastModel = myglm::translate(lastModel, translation);
-
-						lastModel = myglm::scale(lastModel, scale);
-
-						isDirty = false;
-					}
-					else
-					{
-						lastModel = myglm::mat4(1.0f);
-						lastModel = myglm::translate(lastModel, translation);
-
-						lastModel = lastModel * orientation;
-
-						lastModel = myglm::scale(lastModel, scale);
-
-						isDirty = false;
-					}
-				}
-				return lastModel;
-			}
-			else if (rotateAroundOrigin)
+			if (rotateAroundOrigin)
 			{
 				lastModel = myglm::mat4(1.0f);
 
@@ -393,7 +361,7 @@ class SingleRubikCube : public Shape
 {
 	// int type;	//1 middle cube (1 color) , 2 side cube (2 colors), 3 corner cube (3 colors)
 
-	myglm::mat4 rotationSC;
+	myglm::mat4 rotation;
 	myglm::vec4 faceColors[6];
 
 public:
@@ -402,7 +370,7 @@ public:
 	{
 
 		initialize(position, scale, rotation);
-		orientation = myglm::mat4(1.0f);
+
 		for (int f = 0; f < 6; f++)
 		{
 			faceColors[f] = colorsArray[f];
@@ -477,21 +445,357 @@ public:
 			glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, (void *)(6 * f * sizeof(unsigned int)));
 		}
 	}
-	void applyRotation(
-		float angle,
-		myglm::vec3 axis)
+};
+
+class Pyramid : public Shape
+{
+public:
+	unsigned int nBaseEdges;
+	float height;
+	float radio;
+	Pyramid(myglm::vec3 position, myglm::vec3 scale, myglm::vec3 rotation, float radio = 0.5f, float height = 0.5f, unsigned int nBaseEdges = 3)
 	{
-		orientation =
-			myglm::rotate(
-				myglm::mat4(1.0f),
-				angle,
-				axis) *
-			orientation;
-		isDirty = true;
+		this->nBaseEdges = nBaseEdges;
+		this->height = height;
+		this->radio = radio;
+		initialize(position, scale, rotation);
+	}
+	void generateBase()
+	{
+		myglm::vec3 center(0.0f, 0.0f, -height / 2);
+		vertices.push_back(center);
+		float currentAngle;
+		float anglePerEdge = (2 * M_PI) / nBaseEdges;
+
+		for (int i = 0; i <= nBaseEdges; i++)
+		{
+			currentAngle = i * anglePerEdge;
+			float x = radio * cos(currentAngle);
+			float y = radio * sin(currentAngle);
+			vertices.push_back(myglm::vec3(x, y, -height / 2));
+		}
+	}
+	void generateVertices(myglm::vec3 position, myglm::vec3 scale, myglm::vec3 rotation)
+	{
+		generateBase();
+		vertices.push_back(myglm::vec3(0.0f, 0.0f, height / 2));
+
+		setPosition(position);
+		setRotation(rotation);
+		setScale(scale);
+	}
+	void generateIndices()
+	{
+		unsigned int top = vertices.size() - 1;
+		for (int i = 1; i <= nBaseEdges; i++)
+		{
+			indices.push_back(top);
+			indices.push_back(i);
+			indices.push_back(i + 1);
+		}
+	}
+	void generateIndicesEdges()
+	{
+		unsigned int top = vertices.size() - 1;
+		// base edges
+		for (int i = 1; i <= nBaseEdges; i++)
+		{
+			// Base edge
+			indicesEdges.push_back(i);
+			indicesEdges.push_back(i + 1);
+
+			// Lateral edge
+			indicesEdges.push_back(i);
+			indicesEdges.push_back(top);
+		}
+	}
+
+	void drawEdges()
+	{
+		myglm::vec4 color(1.0f, 1.0f, 1.0f, 1.0f);
+		glUniform4fv(lastColorLoc, 1, myglm::value_ptr(color));
+		glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBOedges);
+		glDrawElements(GL_LINES, indicesEdges.size(), GL_UNSIGNED_INT, 0);
+	}
+	void drawShape()
+	{
+		std::vector<myglm::vec4> color = {myglm::vec4(1.0f, 0.0f, 0.0f, 1.0f),
+										  myglm::vec4(0.0f, 1.0f, 0.0f, 1.0f),
+										  myglm::vec4(0.0f, 0.0f, 1.0f, 1.0f),
+										  myglm::vec4(1.0f, 1.0f, 0.0f, 1.0f),
+										  myglm::vec4(1.0f, 0.0f, 1.0f, 1.0f),
+										  myglm::vec4(0.0f, 1.0f, 1.0f, 1.0f)};
+
+		glUniform4fv(lastColorLoc, 1, myglm::value_ptr(color[0]));
+		glDrawArrays(GL_TRIANGLE_FAN, 0, nBaseEdges + 2);
+		glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBO);
+
+		for (int i = 0; i < nBaseEdges; i++)
+		{
+			glUniform4fv(lastColorLoc, 1, myglm::value_ptr(color[(i + 1) % 6]));
+			glDrawElements(GL_TRIANGLES, 3, GL_UNSIGNED_INT, (void *)(3 * i * sizeof(unsigned int)));
+		}
 	}
 };
-class Rubik;
 
+class Prism : public Shape
+{
+public:
+	unsigned int nBaseEdges;
+	float height;
+	float radio;
+	Prism(myglm::vec3 position, myglm::vec3 scale, myglm::vec3 rotation, float radio = 0.5f, float height = 0.5f, unsigned int nBaseEdges = 3)
+	{
+		this->nBaseEdges = nBaseEdges;
+		this->height = height;
+		this->radio = radio;
+		initialize(position, scale, rotation);
+	}
+	void generateBases()
+	{
+		myglm::vec3 centerBot(0.0f, 0.0f, height / 2);
+		myglm::vec3 centerTop(0.0f, 0.0f, -height / 2);
+		vertices.push_back(centerBot);
+		float currentAngle;
+		float anglePerEdge = (2 * M_PI) / nBaseEdges;
+
+		for (int i = 0; i <= nBaseEdges; i++)
+		{
+			currentAngle = i * anglePerEdge;
+			float x = radio * cos(currentAngle);
+			float y = radio * sin(currentAngle);
+			vertices.push_back(myglm::vec3(x, y, height / 2));
+		}
+
+		vertices.push_back(centerTop);
+		for (int i = 0; i <= nBaseEdges; i++)
+		{
+			currentAngle = i * anglePerEdge;
+			float x = radio * cos(currentAngle);
+			float y = radio * sin(currentAngle);
+			vertices.push_back(myglm::vec3(x, y, -height / 2));
+		}
+	}
+	void generateVertices(myglm::vec3 position, myglm::vec3 scale, myglm::vec3 rotation)
+	{
+		generateBases();
+
+		setPosition(position);
+		setRotation(rotation);
+		setScale(scale);
+	}
+	void generateIndices()
+	{
+		for (int i = 1; i <= nBaseEdges; i++)
+		{
+			unsigned int bot = i;
+			unsigned int top = i + nBaseEdges + 2;
+
+			// First triangle of the quad
+			indices.push_back(bot);
+			indices.push_back(bot + 1);
+			indices.push_back(top);
+
+			// Second triangle of the quad
+			indices.push_back(top + 1);
+			indices.push_back(bot + 1);
+			indices.push_back(top);
+		}
+	}
+	void generateIndicesEdges()
+	{
+		unsigned int top = vertices.size() - 1;
+		for (int i = 1; i <= nBaseEdges; i++)
+		{
+			unsigned int top = i + nBaseEdges + 2;
+			unsigned int bot = i;
+
+			// Top base edge
+			indicesEdges.push_back(top);
+			indicesEdges.push_back(top + 1);
+
+			// Bottom base edge
+			indicesEdges.push_back(bot);
+			indicesEdges.push_back(bot + 1);
+
+			// Lateral (vertical) edge
+			indicesEdges.push_back(bot);
+			indicesEdges.push_back(top);
+		}
+	}
+
+	void drawEdges()
+	{
+		myglm::vec4 color(1.0f, 1.0f, 1.0f, 1.0f);
+		glUniform4fv(lastColorLoc, 1, myglm::value_ptr(color));
+		glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBOedges);
+		glDrawElements(GL_LINES, indicesEdges.size(), GL_UNSIGNED_INT, 0);
+	}
+	void drawShape()
+	{
+		std::vector<myglm::vec4> color = {myglm::vec4(1.0f, 0.0f, 0.0f, 1.0f),
+										  myglm::vec4(0.0f, 1.0f, 0.0f, 1.0f),
+										  myglm::vec4(0.0f, 0.0f, 1.0f, 1.0f),
+										  myglm::vec4(1.0f, 1.0f, 0.0f, 1.0f),
+										  myglm::vec4(1.0f, 0.0f, 1.0f, 1.0f),
+										  myglm::vec4(0.0f, 1.0f, 1.0f, 1.0f)};
+
+		glUniform4fv(lastColorLoc, 1, myglm::value_ptr(color[0]));
+		glDrawArrays(GL_TRIANGLE_FAN, 0, nBaseEdges + 2);
+		glUniform4fv(lastColorLoc, 1, myglm::value_ptr(color[1]));
+		glDrawArrays(GL_TRIANGLE_FAN, nBaseEdges + 2, nBaseEdges + 2);
+		glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBO);
+
+		for (int i = 0; i < nBaseEdges; i++)
+		{
+			glUniform4fv(lastColorLoc, 1, myglm::value_ptr(color[(i + 2) % 6]));
+			glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, (void *)(6 * i * sizeof(unsigned int)));
+		}
+	}
+};
+
+class Sphere : public Shape
+{
+public:
+	float radius;
+	unsigned int sectorCount; // Longitude (slices)
+	unsigned int stackCount;  // Latitude (rings)
+
+	Sphere(myglm::vec3 position, myglm::vec3 scale, myglm::vec3 rotation, float radius = 0.5f, unsigned int sectors = 18, unsigned int stacks = 9)
+	{
+		this->radius = radius;
+		this->sectorCount = sectors;
+		this->stackCount = stacks;
+		initialize(position, scale, rotation);
+	}
+
+	void generateVertices(myglm::vec3 position, myglm::vec3 scale, myglm::vec3 rotation)
+	{
+		float x, y, z, xy;
+		float sectorStep = 2 * M_PI / sectorCount;
+		float stackStep = M_PI / stackCount;
+		float sectorAngle, stackAngle;
+
+		// Generate vertices from top to bottom
+		for (int i = 0; i <= stackCount; i++)
+		{
+			stackAngle = M_PI / 2 - i * stackStep; // From pi/2 to -pi/2
+			xy = radius * cosf(stackAngle);		   // r * cos(u)
+			z = radius * sinf(stackAngle);		   // r * sin(u)
+
+			for (int j = 0; j <= sectorCount; ++j)
+			{
+				sectorAngle = j * sectorStep; // From 0 to 2pi
+				x = xy * cosf(sectorAngle);	  // r * cos(u) * cos(v)
+				y = xy * sinf(sectorAngle);	  // r * cos(u) * sin(v)
+
+				vertices.push_back(myglm::vec3(x, y, z));
+			}
+		}
+
+		setPosition(position);
+		setRotation(rotation);
+		setScale(scale);
+	}
+
+	void generateIndices()
+	{
+		unsigned int k1, k2;
+		for (int i = 0; i < stackCount; ++i)
+		{
+			k1 = i * (sectorCount + 1); // Beginning of current stack
+			k2 = k1 + sectorCount + 1;	// Beginning of next stack
+
+			for (int j = 0; j < sectorCount; ++j, ++k1, ++k2)
+			{
+				// 2 triangles per sector excluding first and last stacks
+				if (i != 0)
+				{
+					indices.push_back(k1);
+					indices.push_back(k2);
+					indices.push_back(k1 + 1);
+				}
+				if (i != (stackCount - 1))
+				{
+					indices.push_back(k1 + 1);
+					indices.push_back(k2);
+					indices.push_back(k2 + 1);
+				}
+			}
+		}
+	}
+
+	void generateIndicesEdges()
+	{
+		unsigned int k1, k2;
+		for (int i = 0; i < stackCount; ++i)
+		{
+			k1 = i * (sectorCount + 1);
+			k2 = k1 + sectorCount + 1;
+
+			for (int j = 0; j < sectorCount; ++j, ++k1, ++k2)
+			{
+				// Horizontal line
+				indicesEdges.push_back(k1);
+				indicesEdges.push_back(k1 + 1);
+
+				// Vertical line (avoid drawing redundant lines at the bottom pole)
+				if (i != (stackCount - 1))
+				{
+					indicesEdges.push_back(k1);
+					indicesEdges.push_back(k2);
+				}
+			}
+		}
+	}
+
+	void drawEdges()
+	{
+		myglm::vec4 color(1.0f, 1.0f, 1.0f, 1.0f);
+		glUniform4fv(lastColorLoc, 1, myglm::value_ptr(color));
+
+		glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBOedges);
+		glDrawElements(GL_LINES, indicesEdges.size(), GL_UNSIGNED_INT, 0);
+	}
+
+	void drawShape()
+	{
+		glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBO);
+
+		std::vector<myglm::vec4> color = {
+			myglm::vec4(1.0f, 0.0f, 0.0f, 1.0f), // Red
+			myglm::vec4(0.0f, 1.0f, 0.0f, 1.0f), // Green
+			myglm::vec4(0.0f, 0.0f, 1.0f, 1.0f), // Blue
+			myglm::vec4(1.0f, 1.0f, 0.0f, 1.0f), // Yellow
+			myglm::vec4(1.0f, 0.0f, 1.0f, 1.0f), // Magenta
+			myglm::vec4(0.0f, 1.0f, 1.0f, 1.0f)	 // Cyan
+		};
+
+		unsigned int indexOffset = 0;
+		unsigned int indicesPerStack;
+
+		for (int i = 0; i < stackCount; ++i)
+		{
+			// Top and bottom caps are made of single triangles (3 vertices per sector)
+			// Middle stacks are made of quads (6 vertices per sector)
+			if (i == 0 || i == stackCount - 1)
+			{
+				indicesPerStack = sectorCount * 3;
+			}
+			else
+			{
+				indicesPerStack = sectorCount * 6;
+			}
+			glUniform4fv(lastColorLoc, 1, myglm::value_ptr(color[i % 6]));
+
+			glDrawElements(GL_TRIANGLES, indicesPerStack, GL_UNSIGNED_INT, (void *)(indexOffset * sizeof(unsigned int)));
+
+			indexOffset += indicesPerStack;
+		}
+	}
+};
+
+class Rubik;
 class Scene
 {
 public:
@@ -647,7 +951,7 @@ public:
 	SingleRubikCube *cubes[3][3][3];
 	myglm::vec3 center;
 	float sizeRubik;
-	// myglm::mat4 layerTransform = myglm::mat4(1.0f);
+	myglm::mat4 layerTransform = myglm::mat4(1.0f);
 
 	Rubik(myglm::vec3 scale, myglm::vec3 rotation, myglm::vec3 _position, float sizeRubik)
 	{
@@ -700,7 +1004,7 @@ public:
 						fColors[5] = colors[5];
 
 					cubes[k][j][i] = new SingleRubikCube(position, scale, rotation, fColors, indice);
-					// cubes[k][j][i]->swapRotationState();
+					cubes[k][j][i]->swapRotationState();
 					indice++;
 				}
 	}
@@ -711,28 +1015,26 @@ public:
 				for (int k = 0; k < 3; k++)
 					scene.shapePointers.push_back(cubes[k][j][i]);
 	}
+	/*
+	void rotateLogicX(int layer, bool cw);
+	void rotateVisualX(int layer, bool cw);
+	void rotateLogicY(int layer, bool cw);
+	void rotateVisualY(int layer, bool cw);
+	void rotateLogicZ(int layer, bool cw);
+	void rotateVisualZ(int layer, bool cw);
+*/
 
-	void rebuildPositions()
+	/*void rotateLayerZ(int layer, bool cw)
 	{
-		float sizeSingleCube = sizeRubik / 3.0f;
-		float offSetPos = sizeSingleCube;
-
-		for (int x = 0; x < 3; x++)
-		{
-			for (int y = 0; y < 3; y++)
-			{
-				for (int z = 0; z < 3; z++)
-				{
-					myglm::vec3 position(
-						center.x + sizeSingleCube * x - offSetPos,
-						center.y + sizeSingleCube * y - offSetPos,
-						center.z + sizeSingleCube * z - offSetPos);
-
-					cubes[x][y][z]->setPosition(position);
-				}
-			}
-		}
+		rotateLogicZ(layer, cw);
+		rotateVisualZ(layer, cw);
 	}
+	void rotateLayerY(int layer, bool cw)
+	{
+		rotateLogicY(layer, cw);
+		rotateVisualY(layer, cw);
+	}
+*/
 	void rotateLogicX(int layer, bool cw)
 	{
 		SingleRubikCube *temp[3][3];
@@ -753,7 +1055,6 @@ public:
 			{
 				if (cw)
 					cubes[layer][y][z] = temp[2 - z][y];
-
 				else
 					cubes[layer][y][z] = temp[z][2 - y];
 			}
@@ -776,13 +1077,25 @@ public:
 				SingleRubikCube *c = cubes[layer][y][z];
 
 				// rotación visual del cubito (igual estilo que KEY_Y)
-				c->applyRotation(myglm::radians(angle), myglm::vec3(1, 0, 0));
+				c->rotate(myglm::vec3(myglm::radians(angle), 0.0f, 0.0f));
 			}
 		}
 
 		// rebuildPositions();
 	}
+	void rotateLayerX(int layer, bool cw)
+	{
+		rotateLogicX(layer, cw);
+		rotateVisualX(layer, cw);
 
+		float angle = cw ? -90.0f : 90.0f;
+
+		// for (int y = 0; y < 3; y++)
+		//	for (int z = 0; z < 3; z++)
+		//	{
+		//		cubes[layer][y][z]->rotate(myglm::vec3(angle, 0, 0));
+		//	}
+	}
 	void rotateLogicY(int layer, bool cw)
 	{
 		SingleRubikCube *temp[3][3];
@@ -823,7 +1136,11 @@ public:
 			{
 				SingleRubikCube *c = cubes[x][layer][z];
 
-				c->applyRotation(myglm::radians(angle), myglm::vec3(0, 1, 0));
+				c->rotate(
+					myglm::vec3(
+						0.0f,
+						myglm::radians(angle),
+						0.0f));
 			}
 		}
 	}
@@ -867,102 +1184,152 @@ public:
 			{
 				SingleRubikCube *c = cubes[x][y][layer];
 
-				c->applyRotation(myglm::radians(angle), myglm::vec3(0, 0, 1));
+				c->rotate(
+					myglm::vec3(
+						0.0f,
+						0.0f,
+						myglm::radians(angle)));
 			}
 		}
 	}
-	void rotateLayerX(int layer, bool cw)
-	{
-		// rotateVisualX(layer, cw);
-		rotateLogicX(layer, cw);
-		// rebuildPositions();
-		// aqui deberia ir el rotatevisual(solo hacer la animacion y despues deshacer lo que se hizo)
-		// esto si es la logica para cambiar posiciones y hacer la rotacion
-		float sizeSingleCube = sizeRubik / 3.0f;
-		float offSetPos = sizeSingleCube;
-		float angle = cw ? -myglm::radians(90.0f)
-						 : myglm::radians(90.0f);
-		for (int y = 0; y < 3; y++)
-		{
-			for (int z = 0; z < 3; z++)
-			{
-				myglm::vec3 position(
-					center.x + sizeSingleCube * layer - offSetPos,
-					center.y + sizeSingleCube * y - offSetPos,
-					center.z + sizeSingleCube * z - offSetPos);
 
-				cubes[layer][y][z]->setPosition(position);
-				cubes[layer][y][z]->rotate(myglm::vec3(angle, 0.0f, 0.0f));
-			}
-		}
-	}
 	void rotateLayerY(int layer, bool cw)
 	{
-		// rotateVisualY(layer, cw);
 		rotateLogicY(layer, cw);
-
-		float sizeSingleCube = sizeRubik / 3.0f;
-		float offSetPos = sizeSingleCube;
-
-		float angle = cw ? -myglm::radians(90.0f)
-						 : myglm::radians(90.0f);
-
-		for (int x = 0; x < 3; x++)
-		{
-			for (int z = 0; z < 3; z++)
-			{
-				myglm::vec3 position(
-					center.x + sizeSingleCube * x - offSetPos,
-					center.y + sizeSingleCube * layer - offSetPos,
-					center.z + sizeSingleCube * z - offSetPos);
-
-				cubes[x][layer][z]->setPosition(position);
-
-				cubes[x][layer][z]->rotate(myglm::vec3(0.0f, angle, 0.0f));
-			}
-		}
+		rotateVisualY(layer, cw);
 	}
 
 	void rotateLayerZ(int layer, bool cw)
 	{
-		// rotateVisualZ(layer, cw);
 		rotateLogicZ(layer, cw);
-		float sizeSingleCube = sizeRubik / 3.0f;
-		float offSetPos = sizeSingleCube;
-
-		float angle = cw ? -myglm::radians(90.0f)
-						 : myglm::radians(90.0f);
-
-		for (int x = 0; x < 3; x++)
-		{
-			for (int y = 0; y < 3; y++)
-			{
-				myglm::vec3 position(
-					center.x + sizeSingleCube * x - offSetPos,
-					center.y + sizeSingleCube * y - offSetPos,
-					center.z + sizeSingleCube * layer - offSetPos);
-
-				cubes[x][y][layer]->setPosition(position);
-
-				cubes[x][y][layer]->rotate(myglm::vec3(0.0f, 0.0f, angle));
-			}
-		}
+		rotateVisualZ(layer, cw);
 	}
-	void printRubik()
+
+	/*void rotateVisualX(int layer, bool cw)
 	{
+		float angle = cw ? -90.0f : 90.0f;
+
+		for (int y = 0; y < 3; y++)
+			for (int z = 0; z < 3; z++)
+			{
+				SingleRubikCube *c = cubes[layer][y][z];
+
+				// posición relativa al centro del cubo Rubik
+				myglm::vec3 p = c->translation - center;
+
+				// rotar posición
+				p = rotateXVec(p, angle);
+
+				// regresar a mundo
+				// c->setPosition(p + center);
+
+				// rotar orientación del cubito
+				// c->rotate(myglm::vec3(angle, 0, 0));
+
+				p = rotateXVec(p, angle);
+				c->setPosition(p + center);
+			}
+	}*/
+	/* idea
+	R = rotateXLayer(2,true);
+	L = rotateXLayer(0,false);
+
+	U = rotateYLayer(2,true);
+	D = rotateYLayer(0,false);
+
+	F = rotateZLayer(0,true);
+	B = rotateZLayer(2,false);
+
+	void rotateXLayer(int layer, bool clockwise)
+	{
+		SingleRubikCube *temp[3][3];
+
+		for (int y = 0; y < 3; y++)
+			for (int z = 0; z < 3; z++)
+				temp[y][z] = cubes[layer][y][z];
+
+		for (int y = 0; y < 3; y++)
+			for (int z = 0; z < 3; z++)
+			{
+				if (clockwise)
+					cubes[layer][y][z] = temp[2 - z][y];
+				else
+					cubes[layer][y][z] = temp[z][2 - y];
+			}
+
+		myglm::vec3 axis(1, 0, 0);
+		float angle = clockwise ? -90.0f : 90.0f;
+
+		for (int y = 0; y < 3; y++)
+			for (int z = 0; z < 3; z++)
+			{
+				SingleRubikCube *c = cubes[layer][y][z];
+
+				c->setPosition(rotatePointAroundX(c->translation, layerCenterX, angle));
+				c->rotate(myglm::vec3(angle, 0, 0));
+			}
+	}
+	void rotateYLayer(int layer, bool clockwise)
+	{
+		SingleRubikCube *temp[3][3];
+
+		for (int x = 0; x < 3; x++)
+			for (int z = 0; z < 3; z++)
+				temp[x][z] = cubes[x][layer][z];
+
 		for (int x = 0; x < 3; x++)
 		{
-			std::cout << "\n sig nivel:\n";
-			for (int y = 0; y < 3; y++)
+			for (int z = 0; z < 3; z++)
 			{
-				for (int z = 0; z < 3; z++)
-				{
-					std::cout << cubes[x][y][z]->indice << " ";
-				}
-				std::cout << '\n';
+				if (clockwise)
+					cubes[x][layer][z] = temp[2 - z][x];
+				else
+					cubes[x][layer][z] = temp[z][2 - x];
 			}
 		}
+
+		myglm::vec3 axis(0, 1, 0);
+		float angle = clockwise ? -90.0f : 90.0f;
+
+		for (int x = 0; x < 3; x++)
+			for (int z = 0; z < 3; z++)
+			{
+				auto c = cubes[x][layer][z];
+				c->rotate(myglm::vec3(0, angle, 0));
+			}
 	}
+
+	void rotateYLayer(int layer, bool clockwise)
+	{
+		SingleRubikCube* temp[3][3];
+
+for(int x=0;x<3;x++)
+for(int y=0;y<3;y++)
+	temp[x][y] = cubes[x][y][layer];
+
+for(int x=0;x<3;x++)
+{
+	for(int y=0;y<3;y++)
+	{
+		if(clockwise)
+			cubes[x][y][layer] = temp[2 - y][x];
+		else
+			cubes[x][y][layer] = temp[y][2 - x];
+	}
+}
+
+myglm::vec3 axis(0,0,1);
+float angle = clockwise ? -90.0f : 90.0f;
+
+for(int x=0;x<3;x++)
+for(int y=0;y<3;y++)
+{
+	auto c = cubes[x][y][layer];
+	c->rotate(myglm::vec3(0,0,angle));
+}
+	}
+
+	*/
 };
 
 // glUniformMatrix4fv(lastViewLoc, 1, GL_FALSE, myglm::value_ptr(getTranformMatrix(rotateAroundOrigin)));
@@ -1141,7 +1508,6 @@ void key_callback(GLFWwindow *window, int key, int scancode, int action, int mod
 		case GLFW_KEY_4:
 			myScene->rotateCameraY(-0.1f);
 			break;
-		// implementado a los 6 lados(faltarian su movimiento opuesto a cada uno)
 		case GLFW_KEY_5:
 			myScene->rubik->rotateLayerX(0, true); // izquierda
 			break;
@@ -1163,10 +1529,6 @@ void key_callback(GLFWwindow *window, int key, int scancode, int action, int mod
 		case GLFW_KEY_0:
 			myScene->rubik->rotateLayerZ(2, false); // derecha
 			break;
-		case GLFW_KEY_Z:
-			myScene->rubik->printRubik(); // derecha
-			break;
-		
 		default:
 			break;
 		}

@@ -77,7 +77,7 @@ public:
 	unsigned int lastShaderProgram = 0;
 
 	bool isVisible = true;
-	bool iscube = false;
+	bool iscube= false;
 	bool rotateAroundOrigin = false;
 
 	myglm::vec3 translation = myglm::vec3(0.0f, 0.0f, 0.0f);
@@ -235,38 +235,37 @@ public:
 	const myglm::mat4 &getTranformMatrix(bool rotateAroundOrigin)
 	{
 		if (isDirty)
+		{	if(iscube){
+				std::cout<<"singlecubetransformmatrix\n";
+		if (isDirty)
 		{
-			if (iscube)
+			if (rotateAroundOrigin)
 			{
-				std::cout << "singlecubetransformmatrix\n";
-				if (isDirty)
-				{
-					if (rotateAroundOrigin)
-					{
-						lastModel = myglm::mat4(1.0f);
+				lastModel = myglm::mat4(1.0f);
 
-						lastModel = lastModel * orientation;
-						lastModel = myglm::translate(lastModel, translation);
+				lastModel = lastModel*orientation;
+				lastModel = myglm::translate(lastModel, translation);
 
-						lastModel = myglm::scale(lastModel, scale);
+				lastModel = myglm::scale(lastModel, scale);
 
-						isDirty = false;
-					}
-					else
-					{
-						lastModel = myglm::mat4(1.0f);
-						lastModel = myglm::translate(lastModel, translation);
-
-						lastModel = lastModel * orientation;
-
-						lastModel = myglm::scale(lastModel, scale);
-
-						isDirty = false;
-					}
-				}
-				return lastModel;
+				isDirty = false;
 			}
-			else if (rotateAroundOrigin)
+			else
+			{
+				lastModel = myglm::mat4(1.0f);
+				lastModel = myglm::translate(lastModel, translation);
+
+				lastModel = lastModel*orientation;
+
+				lastModel = myglm::scale(lastModel, scale);
+
+				isDirty = false;
+			}
+		}
+		return lastModel;
+
+		}else
+			if (rotateAroundOrigin)
 			{
 				lastModel = myglm::mat4(1.0f);
 
@@ -459,7 +458,35 @@ public:
 			5, 7,
 			4, 6};
 	}
+	const myglm::mat4 &getTranformMatrix(bool rotateAroundOrigin)
+	{	std::cout<<"singlecubetransformmatrix\n";
+		if (isDirty)
+		{
+			if (rotateAroundOrigin)
+			{
+				lastModel = myglm::mat4(1.0f);
 
+				lastModel = lastModel*orientation;
+				lastModel = myglm::translate(lastModel, translation);
+
+				lastModel = myglm::scale(lastModel, scale);
+
+				isDirty = false;
+			}
+			else
+			{
+				lastModel = myglm::mat4(1.0f);
+				lastModel = myglm::translate(lastModel, translation);
+
+				lastModel = lastModel*orientation;
+
+				lastModel = myglm::scale(lastModel, scale);
+
+				isDirty = false;
+			}
+		}
+		return lastModel;
+	}
 	void drawEdges()
 	{
 		myglm::vec4 color(1.0f, 1.0f, 1.0f, 1.0f);
@@ -487,7 +514,7 @@ public:
 				angle,
 				axis) *
 			orientation;
-		isDirty = true;
+			isDirty = true;
 	}
 };
 class Rubik;
@@ -647,7 +674,7 @@ public:
 	SingleRubikCube *cubes[3][3][3];
 	myglm::vec3 center;
 	float sizeRubik;
-	// myglm::mat4 layerTransform = myglm::mat4(1.0f);
+	//myglm::mat4 layerTransform = myglm::mat4(1.0f);
 
 	Rubik(myglm::vec3 scale, myglm::vec3 rotation, myglm::vec3 _position, float sizeRubik)
 	{
@@ -700,7 +727,7 @@ public:
 						fColors[5] = colors[5];
 
 					cubes[k][j][i] = new SingleRubikCube(position, scale, rotation, fColors, indice);
-					// cubes[k][j][i]->swapRotationState();
+					//cubes[k][j][i]->swapRotationState();
 					indice++;
 				}
 	}
@@ -711,7 +738,7 @@ public:
 				for (int k = 0; k < 3; k++)
 					scene.shapePointers.push_back(cubes[k][j][i]);
 	}
-
+	
 	void rebuildPositions()
 	{
 		float sizeSingleCube = sizeRubik / 3.0f;
@@ -776,7 +803,7 @@ public:
 				SingleRubikCube *c = cubes[layer][y][z];
 
 				// rotación visual del cubito (igual estilo que KEY_Y)
-				c->applyRotation(myglm::radians(angle), myglm::vec3(1, 0, 0));
+				c->applyRotation(myglm::radians(angle),myglm::vec3(1,0,0));
 			}
 		}
 
@@ -823,7 +850,7 @@ public:
 			{
 				SingleRubikCube *c = cubes[x][layer][z];
 
-				c->applyRotation(myglm::radians(angle), myglm::vec3(0, 1, 0));
+				c->applyRotation(myglm::radians(angle),myglm::vec3(0,1,0));
 			}
 		}
 	}
@@ -867,13 +894,13 @@ public:
 			{
 				SingleRubikCube *c = cubes[x][y][layer];
 
-				c->applyRotation(myglm::radians(angle), myglm::vec3(0, 0, 1));
+				c->applyRotation(myglm::radians(angle),myglm::vec3(0,0,1));
 			}
 		}
 	}
 	void rotateLayerX(int layer, bool cw)
 	{
-		// rotateVisualX(layer, cw);
+		//rotateVisualX(layer, cw);
 		rotateLogicX(layer, cw);
 		// rebuildPositions();
 		// aqui deberia ir el rotatevisual(solo hacer la animacion y despues deshacer lo que se hizo)
@@ -892,13 +919,13 @@ public:
 					center.z + sizeSingleCube * z - offSetPos);
 
 				cubes[layer][y][z]->setPosition(position);
-				cubes[layer][y][z]->rotate(myglm::vec3(angle, 0.0f, 0.0f));
+				 cubes[layer][y][z]->rotate(myglm::vec3(angle, 0.0f, 0.0f));
 			}
 		}
 	}
 	void rotateLayerY(int layer, bool cw)
 	{
-		// rotateVisualY(layer, cw);
+		//rotateVisualY(layer, cw);
 		rotateLogicY(layer, cw);
 
 		float sizeSingleCube = sizeRubik / 3.0f;
@@ -918,14 +945,14 @@ public:
 
 				cubes[x][layer][z]->setPosition(position);
 
-				cubes[x][layer][z]->rotate(myglm::vec3(0.0f, angle, 0.0f));
+				 cubes[x][layer][z]->rotate(myglm::vec3(0.0f, angle, 0.0f));
 			}
 		}
 	}
 
 	void rotateLayerZ(int layer, bool cw)
 	{
-		// rotateVisualZ(layer, cw);
+		//rotateVisualZ(layer, cw);
 		rotateLogicZ(layer, cw);
 		float sizeSingleCube = sizeRubik / 3.0f;
 		float offSetPos = sizeSingleCube;
@@ -944,22 +971,7 @@ public:
 
 				cubes[x][y][layer]->setPosition(position);
 
-				cubes[x][y][layer]->rotate(myglm::vec3(0.0f, 0.0f, angle));
-			}
-		}
-	}
-	void printRubik()
-	{
-		for (int x = 0; x < 3; x++)
-		{
-			std::cout << "\n sig nivel:\n";
-			for (int y = 0; y < 3; y++)
-			{
-				for (int z = 0; z < 3; z++)
-				{
-					std::cout << cubes[x][y][z]->indice << " ";
-				}
-				std::cout << '\n';
+				 cubes[x][y][layer]->rotate(myglm::vec3(0.0f, 0.0f, angle));
 			}
 		}
 	}
@@ -1141,7 +1153,6 @@ void key_callback(GLFWwindow *window, int key, int scancode, int action, int mod
 		case GLFW_KEY_4:
 			myScene->rotateCameraY(-0.1f);
 			break;
-		// implementado a los 6 lados(faltarian su movimiento opuesto a cada uno)
 		case GLFW_KEY_5:
 			myScene->rubik->rotateLayerX(0, true); // izquierda
 			break;
@@ -1163,10 +1174,6 @@ void key_callback(GLFWwindow *window, int key, int scancode, int action, int mod
 		case GLFW_KEY_0:
 			myScene->rubik->rotateLayerZ(2, false); // derecha
 			break;
-		case GLFW_KEY_Z:
-			myScene->rubik->printRubik(); // derecha
-			break;
-		
 		default:
 			break;
 		}
