@@ -1,0 +1,1414 @@
+// cambios realizados del team
+#define GLAD_GL_IMPLEMENTATION
+#include <glad/gl.h>
+#define GLFW_INCLUDE_NONE
+#include <GLFW/glfw3.h>
+
+#include "myglm.h"
+
+#include "linmath.h"
+
+#include <stdlib.h>
+#include <stddef.h>
+#include <stdio.h>
+#include <vector>
+#include <iostream>
+#include <string>
+
+#include <random>
+
+#define WIDTH 1000
+#define HEIGHT 800
+
+const char *vertexShaderSource = "#version 330 core\n"
+								 "layout (location = 0) in vec3 aPos;\n"
+								 "uniform mat4 model;\n"
+								 "uniform mat4 view;\n"
+								 "uniform mat4 projection;\n"
+								 "void main()\n"
+								 "{\n"
+								 "   gl_Position = projection*view*model*vec4(aPos, 1.0);\n"
+								 "}\0";
+
+const char *fragmentShaderSourceUniform = "#version 330 core\n"
+										  "out vec4 FragColor;\n"
+										  "uniform vec4 color;\n"
+										  "void main()\n"
+										  "{\n"
+										  "   FragColor = color;\n"
+										  "}\n\0";
+
+const char *fragmentShaderSource1 = "#version 330 core\n"
+									"out vec4 FragColor;\n"
+									"void main()\n"
+									"{\n"
+									"   FragColor = vec4(0.0f, 1.0f, 0.0f, 1.0f);\n"
+									"}\n\0";
+
+const char *fragmentShaderSource2 = "#version 330 core\n"
+									"out vec4 FragColor;\n"
+									"void main()\n"
+									"{\n"
+									"   FragColor = vec4(1.0f, 0.0f, 0.0f, 1.0f);\n"
+									"}\n\0";
+
+const char *fragmentShaderSource3 = "#version 330 core\n"
+									"out vec4 FragColor;\n"
+									"void main()\n"
+									"{\n"
+									"   FragColor = vec4(1.0f, 1.0f, 0.0f, 1.0f);\n"
+									"}\n\0";
+
+float getRadiusForNEdges(unsigned int nEdges, float edgeLenght = 1.0f)
+{
+	return edgeLenght / 2 / cos(myglm::radians(90) * (1 - 2 / (float)nEdges));
+}
+
+// Classes
+
+class Shape
+{
+public:
+	unsigned int VBO, VAO, EBO, EBOedges;
+
+	unsigned int lastColorLoc = 0, lastModelLoc = 0;
+
+	unsigned int lastShaderProgram = 0;
+
+	bool isVisible = true;
+	bool iscube = false;
+	bool rotateAroundOrigin = false;
+
+	myglm::vec3 translation = myglm::vec3(0.0f, 0.0f, 0.0f);
+	myglm::vec3 rotation = myglm::vec3(0.0f, 0.0f, 0.0f);
+	myglm::vec3 scale = myglm::vec3(1.0f, 1.0f, 1.0f);
+	std::vector<myglm::vec3> vertices;
+	std::vector<unsigned int> indices;
+	std::vector<unsigned int> indicesEdges;
+
+	bool isDirty = true;
+	myglm::mat4 lastModel = myglm::mat4(1.0f);
+	myglm::mat4 orientation = myglm::mat4(1.0f);
+
+	void swapVisibility()
+	{
+		isVisible = !isVisible;
+	}
+
+	void displayState()
+	{
+		std::cout << "Position: " << translation.x << " " << translation.y << " " << translation.z << "\n"
+				  << "Rotation: " << rotation.x << " " << rotation.y << " " << rotation.z << "\n"
+				  << "Scale: " << scale.x << " " << scale.y << " " << scale.z << "\n\n";
+	}
+
+	void swapRotationState()
+	{
+		rotateAroundOrigin = !rotateAroundOrigin;
+	}
+
+	void drawVertices()
+	{
+		myglm::vec4 color(0.0f, 0.0f, 0.0f, 1.0f);
+		glUniform4fv(lastColorLoc, 1, myglm::value_ptr(color));
+		glDrawArrays(GL_POINTS, 0, vertices.size());
+	}
+	void draw(unsigned int shaderProgram)
+	{
+		if (!isVisible)
+			return;
+		if (lastShaderProgram != shaderProgram)
+		{
+			glUseProgram(shaderProgram);
+			lastShaderProgram = shaderProgram;
+			lastModelLoc = glGetUniformLocation(shaderProgram, "model");
+			lastColorLoc = glGetUniformLocation(shaderProgram, "color");
+		}
+		glUniformMatrix4fv(lastModelLoc, 1, GL_FALSE, myglm::value_ptr(getTranformMatrix(rotateAroundOrigin)));
+		glBindVertexArray(VAO);
+		drawShape();
+		drawEdges();
+		drawVertices();
+	}
+
+	virtual void drawEdges() = 0;
+	virtual void drawShape() = 0;
+
+	virtual void generateVertices(myglm::vec3 position, myglm::vec3 scale, myglm::vec3 rotation) = 0;
+	virtual void generateIndices() = 0;
+	virtual void generateIndicesEdges() = 0;
+
+	void initialize(myglm::vec3 position, myglm::vec3 scale, myglm::vec3 rotation)
+	{
+
+		generateVertices(position, scale, rotation);
+		generateIndices();
+		generateIndicesEdges();
+
+		glGenVertexArrays(1, &VAO);
+		glGenBuffers(1, &VBO);
+		glGenBuffers(1, &EBO);
+		glGenBuffers(1, &EBOedges);
+		glBindVertexArray(VAO);
+		glBindBuffer(GL_ARRAY_BUFFER, VBO);
+		glBufferData(GL_ARRAY_BUFFER, sizeof(myglm::vec3) * vertices.size(), vertices.data(), GL_STATIC_DRAW);
+
+		glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBO);
+		glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(unsigned int) * indices.size(), indices.data(), GL_STATIC_DRAW);
+
+		glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBOedges);
+		glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(unsigned int) * indicesEdges.size(), indicesEdges.data(), GL_STATIC_DRAW);
+
+		glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(myglm::vec3), (void *)0);
+		glEnableVertexAttribArray(0);
+
+		glBindBuffer(GL_ARRAY_BUFFER, 0);
+
+		glBindVertexArray(0);
+	}
+
+	void setPosition(myglm::vec3 newPos)
+	{
+		translation = newPos;
+		isDirty = true;
+	}
+	void translate(myglm::vec3 offset)
+	{
+		translation += offset;
+		isDirty = true;
+	}
+	void translateInverse(myglm::vec3 offset)
+	{
+		translation -= offset;
+		isDirty = true;
+	}
+
+	void setRotation(myglm::vec3 newRot)
+	{
+		rotation = newRot;
+		isDirty = true;
+	}
+	void rotate(myglm::vec3 offsetRot)
+	{
+		rotation += offsetRot;
+		isDirty = true;
+	}
+	void rotateInverse(myglm::vec3 offsetRot)
+	{
+		rotation -= offsetRot;
+		isDirty = true;
+	}
+
+	void setScale(myglm::vec3 newScale)
+	{
+		scale = newScale;
+		isDirty = true;
+	}
+	void scaleBy(myglm::vec3 multiplier)
+	{
+		scale *= multiplier;
+		isDirty = true;
+	}
+	void scaleByInverse(myglm::vec3 multiplier)
+	{
+		scale /= multiplier;
+		isDirty = true;
+	}
+
+	void setScale(float newScale)
+	{
+		scale = myglm::vec3(newScale);
+		isDirty = true;
+	}
+	void scaleBy(float multiplier)
+	{
+		scale *= multiplier;
+		isDirty = true;
+	}
+	void scaleByInverse(float multiplier)
+	{
+		scale /= multiplier;
+		isDirty = true;
+	}
+
+	const myglm::mat4 &getTranformMatrix(bool rotateAroundOrigin)
+	{
+		if (isDirty)
+		{
+			// Si es un cubito del Rubik
+			if (iscube)
+			{
+				lastModel = myglm::mat4(1.0f);
+				
+				// 1. Traslación a su posición en la grilla
+				lastModel = myglm::translate(lastModel, translation);
+				
+				// 2. Rotación acumulada (la que actualizamos en applyRotation)
+				// Nota: En SingleRubikCube guardamos orientation, necesitamos acceso a ella.
+				// Asumiendo que hicimos casting o la variable es accesible.
+				// Si SingleRubikCube hereda de Shape, debemos hacer un cast dinámico o guardar orientation en Shape.
+				// Para simplificar, guardemos orientation en Shape como miembro protegido o público si es cubo.
+				
+				// OPCIÓN SEGURA: Asumiendo que SingleRubikCube tiene 'orientation'
+				// lastModel = lastModel * ((SingleRubikCube*)this)->orientation; 
+				
+				// Para no complicar con casts ahora, hagamos que 'orientation' sea un miembro de Shape
+				// pero solo se use si iscube es true.
+				lastModel = lastModel * orientation; 
+
+				lastModel = myglm::scale(lastModel, scale);
+			}
+			else 
+			{
+				// Lógica normal para Pyramid, Sphere, etc.
+				lastModel = myglm::mat4(1.0f);
+				lastModel = myglm::translate(lastModel, translation);
+				lastModel = myglm::rotate(lastModel, rotation.x, myglm::vec3(1.0f, 0.0f, 0.0f));
+				lastModel = myglm::rotate(lastModel, rotation.y, myglm::vec3(0.0f, 1.0f, 0.0f));
+				lastModel = myglm::rotate(lastModel, rotation.z, myglm::vec3(0.0f, 0.0f, 1.0f));
+				lastModel = myglm::scale(lastModel, scale);
+			}
+			isDirty = false;
+		}
+		return lastModel;
+	}
+
+	virtual ~Shape()
+	{
+		glDeleteVertexArrays(1, &VAO);
+		glDeleteBuffers(1, &VBO);
+		glDeleteBuffers(1, &EBO);
+		glDeleteBuffers(1, &EBOedges);
+	}
+};
+class Cube : public Shape
+{
+public:
+	Cube(myglm::vec3 position, myglm::vec3 scale, myglm::vec3 rotation)
+	{
+		initialize(position, scale, rotation);
+	}
+
+	void generateVertices(myglm::vec3 position, myglm::vec3 scale, myglm::vec3 rotation)
+	{
+
+		vertices = {
+			myglm::vec3(-0.5f, -0.5f, -0.5f), // left down front
+			myglm::vec3(-0.5f, -0.5f, 0.5f),  // left down back
+			myglm::vec3(0.5f, -0.5f, -0.5f),  // right down front
+			myglm::vec3(0.5f, -0.5f, 0.5f),	  // right down back
+			myglm::vec3(-0.5f, 0.5f, -0.5f),  // left up front
+			myglm::vec3(-0.5f, 0.5f, 0.5f),	  // left up back
+			myglm::vec3(0.5f, 0.5f, -0.5f),	  // right up front
+			myglm::vec3(0.5f, 0.5f, 0.5f)	  // right up back
+		};
+
+		setPosition(position);
+		setRotation(rotation);
+		setScale(scale);
+	}
+	void generateIndices()
+	{
+
+		indices = {
+			0, 2, 6, 0, 6, 4, // front
+			1, 5, 7, 1, 7, 3, // back
+			1, 0, 4, 1, 4, 5, // left
+			2, 3, 7, 2, 7, 6, // right
+			4, 6, 7, 4, 7, 5, // up
+			1, 3, 2, 1, 2, 0  // down
+		};
+	}
+	void generateIndicesEdges()
+	{
+
+		indicesEdges = {
+			0, 1, // bottom
+			1, 3,
+			0, 2,
+			3, 2,
+
+			0, 4, // sides
+			1, 5,
+			2, 6,
+			3, 7,
+
+			4, 5, // top
+			6, 7,
+			5, 7,
+			4, 6};
+	}
+
+	void drawEdges()
+	{
+		myglm::vec4 color(1.0f, 1.0f, 1.0f, 1.0f);
+		glUniform4fv(lastColorLoc, 1, myglm::value_ptr(color));
+		glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBOedges);
+		glDrawElements(GL_LINES, 24, GL_UNSIGNED_INT, 0);
+	}
+	void drawShape()
+	{
+		glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBO);
+
+		std::vector<myglm::vec4> color = {myglm::vec4(1.0f, 0.0f, 0.0f, 1.0f),
+										  myglm::vec4(0.0f, 1.0f, 0.0f, 1.0f),
+										  myglm::vec4(0.0f, 0.0f, 1.0f, 1.0f),
+										  myglm::vec4(1.0f, 1.0f, 0.0f, 1.0f),
+										  myglm::vec4(1.0f, 0.0f, 1.0f, 1.0f),
+										  myglm::vec4(0.0f, 1.0f, 1.0f, 1.0f)};
+
+		for (int i = 0; i < 6; i++)
+		{
+			glUniform4fv(lastColorLoc, 1, myglm::value_ptr(color[i]));
+			glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, (void *)(6 * i * sizeof(unsigned int)));
+		}
+	}
+};
+
+class SingleRubikCube : public Shape
+{
+    myglm::mat4 orientation; // Matriz que guarda la rotación acumulada
+    myglm::vec4 faceColors[6];
+public:
+    int indice;
+
+    SingleRubikCube(myglm::vec3 position, myglm::vec3 scale, myglm::vec3 rotation, std::vector<myglm::vec4>& colorsArray, int indice)
+    {
+        initialize(position, scale, rotation);
+        orientation = myglm::mat4(1.0f); // Inicia sin rotación
+        for (int f = 0; f < 6; f++)
+        {
+            faceColors[f] = colorsArray[f];
+        }
+        this->indice = indice;
+    }
+
+	void generateVertices(myglm::vec3 position, myglm::vec3 scale, myglm::vec3 rotation)
+	{
+
+		vertices = {
+			myglm::vec3(-0.5f, -0.5f, -0.5f), // left down back
+			myglm::vec3(-0.5f, -0.5f, 0.5f),  // left down front
+			myglm::vec3(0.5f, -0.5f, -0.5f),  // right down back
+			myglm::vec3(0.5f, -0.5f, 0.5f),	  // right down front
+			myglm::vec3(-0.5f, 0.5f, -0.5f),  // left up back
+			myglm::vec3(-0.5f, 0.5f, 0.5f),	  // left up front
+			myglm::vec3(0.5f, 0.5f, -0.5f),	  // right up back
+			myglm::vec3(0.5f, 0.5f, 0.5f)	  // right up front
+		};
+
+		setPosition(position);
+		setRotation(rotation);
+		setScale(scale);
+	}
+	void generateIndices()
+	{
+
+		indices = {
+			0, 2, 6, 0, 6, 4, // front
+			1, 5, 7, 1, 7, 3, // back
+			1, 0, 4, 1, 4, 5, // left
+			2, 3, 7, 2, 7, 6, // right
+			4, 6, 7, 4, 7, 5, // up
+			1, 3, 2, 1, 2, 0  // down
+		};
+	}
+	void generateIndicesEdges()
+	{
+
+		indicesEdges = {
+			0, 1, // bottom
+			1, 3,
+			0, 2,
+			3, 2,
+
+			0, 4, // sides
+			1, 5,
+			2, 6,
+			3, 7,
+
+			4, 5, // top
+			6, 7,
+			5, 7,
+			4, 6};
+	}
+
+	void drawEdges()
+	{
+		myglm::vec4 color(1.0f, 1.0f, 1.0f, 1.0f);
+		glUniform4fv(lastColorLoc, 1, myglm::value_ptr(color));
+		glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBOedges);
+		glDrawElements(GL_LINES, 24, GL_UNSIGNED_INT, 0);
+	}
+	void drawShape()
+	{
+		glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBO);
+
+		for (int f = 0; f < 6; f++)
+		{
+			glUniform4fv(lastColorLoc, 1, myglm::value_ptr(faceColors[f]));
+			glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, (void *)(6 * f * sizeof(unsigned int)));
+		}
+	}
+	void setFaceColors(const std::vector<myglm::vec4>& newColors) {
+		for (int i = 0; i < 6; i++) faceColors[i] = newColors[i];
+	}
+	void applyRotation(float angle, myglm::vec3 axis)
+    {
+        // Creamos la matriz de rotación y la multiplicamos a la izquierda para rotar en espacio global
+        myglm::mat4 rot = myglm::rotate(myglm::mat4(1.0f), angle, axis);
+        orientation = rot * orientation;
+        isDirty = true;
+		
+    }
+	
+	void rotateFaceColors(int axis, bool cw)
+    {
+        myglm::vec4 temp[6];
+        // Guardamos una copia temporal para no perder datos al sobrescribir
+        for (int i = 0; i < 6; i++) temp[i] = faceColors[i];
+
+        if (axis == 0) // Rotación en Eje X
+		{
+			// Ciclo corregido para coincidir EXACTAMENTE con la rotación visual del shader
+			if (cw) {
+				faceColors[0] = temp[4]; // Front  <- toma color de Up
+				faceColors[4] = temp[1]; // Up     <- toma color de Back
+				faceColors[1] = temp[5]; // Back   <- toma color de Down
+				faceColors[5] = temp[0]; // Down   <- toma color de Front
+			} else {
+				faceColors[0] = temp[5]; // Front  <- toma color de Down
+				faceColors[4] = temp[0]; // Up     <- toma color de Front
+				faceColors[1] = temp[4]; // Back   <- toma color de Up
+				faceColors[5] = temp[1]; // Down   <- toma color de Back
+			}
+		}
+        else if (axis == 1) // Rotación en Eje Y (U/D)
+		{
+			// Front(0) -> Right(3) -> Back(1) -> Left(2) -> Front(0)
+			if (cw) {
+				faceColors[3] = temp[0]; // Right toma Front
+				faceColors[1] = temp[3]; // Back toma Right
+				faceColors[2] = temp[1]; // Left toma Back
+				faceColors[0] = temp[2]; // Front toma Left
+			} else {
+				faceColors[3] = temp[1]; // Right toma Back
+				faceColors[1] = temp[2]; // Back toma Left
+				faceColors[2] = temp[0]; // Left toma Front
+				faceColors[0] = temp[3]; // Front toma Right
+			}
+		}
+        else if (axis == 2) // Rotación en Eje Z
+        {
+            // Ciclo: Up(4) -> Right(3) -> Down(5) -> Left(2) -> Up(4)
+            if (cw) {
+                faceColors[4] = temp[2]; // Up toma Left
+                faceColors[3] = temp[4]; // Right toma Up
+                faceColors[5] = temp[3]; // Down toma Right
+                faceColors[2] = temp[5]; // Left toma Down
+            } else {
+                faceColors[4] = temp[3];
+                faceColors[3] = temp[5];
+                faceColors[5] = temp[2];
+                faceColors[2] = temp[4];
+            }
+        }
+    }
+};
+
+class Rubik;
+
+class Scene
+{
+public:
+	// ejcl por ahora creo el cubo en scene
+	Rubik *rubik;
+
+	std::vector<Shape *> shapePointers;
+
+	int selectedShape = 0;
+	myglm::mat4 view = myglm::mat4(1.0f);
+
+	// ejcl
+	myglm::vec3 cameraPos = myglm::vec3(0.0f, 0.0f, 3.0f);
+	myglm::vec3 cameraTarget = myglm::vec3(0.0f, 0.0f, 0.0f);
+	myglm::vec3 cameraUp = myglm::vec3(0.0f, 1.0f, 0.0f);
+
+	myglm::mat4 projection;
+
+	unsigned int viewLoc;
+	unsigned int projectionLoc;
+
+	unsigned int lastShaderProgram = 0;
+
+	bool isDirty = true;
+
+	bool animationIsRunning = false;
+
+	// myglm::vec3 position(0.0f, 0.0f, 0.0f);
+	// myglm::vec3 velocity(dist(gen), dist(gen), 0.0f);
+
+	float lastTime, deltaTime;
+
+	Scene(myglm::vec3 viewPoint = myglm::vec3(0.0f, 0.0f, -3.0f), float fovy = myglm::radians(45.0f), float aspect = (float)WIDTH / (float)HEIGHT, float zNear = 0.1f, float zFar = 100.0f)
+	{
+		view = myglm::translate(view, viewPoint);
+		projection = myglm::perspective(fovy, aspect, zNear, zFar);
+	}
+
+	void run(unsigned int shaderProgram)
+	{
+		updateMatrices(shaderProgram);
+		animation();
+		for (int i = 0; i < shapePointers.size(); i++)
+		{
+			shapePointers[i]->draw(shaderProgram);
+		}
+	}
+
+	void updateTime()
+	{
+		float currentTime = glfwGetTime();
+		deltaTime = currentTime - lastTime;
+		lastTime = currentTime;
+	}
+
+	void toggleAnimation()
+	{
+		animationIsRunning = !animationIsRunning;
+		lastTime = glfwGetTime();
+	}
+
+	void animation()
+	{
+		if (!animationIsRunning)
+		{
+			return;
+		}
+		updateTime();
+		// animate
+		setShapeVelocity(0, myglm::vec3(0.1f, 0.0f, 0.0f));
+	}
+
+	void setShapeVelocity(unsigned int shapeIndex, myglm::vec3 velocity)
+	{
+		myglm::vec3 delta = velocity * deltaTime;
+		shapePointers[shapeIndex]->translate(delta);
+	}
+
+	void updateMatrices(unsigned int shaderProgram)
+	{
+		if (lastShaderProgram != shaderProgram)
+		{
+			glUseProgram(shaderProgram);
+			lastShaderProgram = shaderProgram;
+
+			viewLoc = glGetUniformLocation(shaderProgram, "view");
+			projectionLoc = glGetUniformLocation(shaderProgram, "projection");
+		}
+
+		if (isDirty)
+		{
+			glUniformMatrix4fv(viewLoc, 1, GL_FALSE, myglm::value_ptr(view));
+			glUniformMatrix4fv(projectionLoc, 1, GL_FALSE, myglm::value_ptr(projection));
+			isDirty = false;
+		}
+	}
+	// ejcl movecamera
+	float radius = 3.0f;
+	float angleY = 0.0f;
+	float angleX = 0.0f;
+
+	void updateCamera()
+	{
+		cameraPos.x = radius * cos(angleX) * sin(angleY);
+		cameraPos.y = radius * sin(angleX);
+		cameraPos.z = radius * cos(angleX) * cos(angleY);
+
+		myglm::vec3 up(0.0f, 1.0f, 0.0f);
+
+		if (cos(angleX) < 0.0f)
+		{
+			up = myglm::vec3(0.0f, -1.0f, 0.0f);
+		}
+
+		view = myglm::lookAt(
+			cameraPos,
+			cameraTarget,
+			up);
+
+		isDirty = true;
+	}
+	void rotateCameraY(float amount)
+	{
+		angleY += amount;
+		updateCamera();
+	}
+	void rotateCameraX(float amount)
+	{
+		angleX += amount;
+		updateCamera();
+	}
+
+	std::vector<myglm::vec3> offsetTranslation = {myglm::vec3(0.05f, 0.0f, 0.0f),
+												  myglm::vec3(0.0f, 0.05f, 0.0f),
+												  myglm::vec3(0.0f, 0.0f, 0.05f)};
+
+	std::vector<myglm::vec3> offsetRotation = {myglm::vec3(0.05f, 0.0f, 0.0f),
+											   myglm::vec3(0.0f, 0.05f, 0.0f),
+											   myglm::vec3(0.0f, 0.0f, 0.05f)};
+
+	std::vector<myglm::vec3> offsetScale = {myglm::vec3(1.05f, 1.0f, 1.0f),
+											myglm::vec3(1.0f, 1.05f, 1.0f),
+											myglm::vec3(1.0f, 1.0f, 1.05f)};
+
+	std::vector<myglm::vec3> reset = {myglm::vec3(0.0f, 0.0f, 0.0f),
+									  myglm::vec3(0.0f, 0.0f, 0.0f),
+									  myglm::vec3(1.0f, 1.0f, 1.0f)};
+};
+
+class Rubik
+{
+public:
+    SingleRubikCube *cubes[3][3][3];
+    myglm::vec3 center;
+    float sizeRubik;
+
+    Rubik(myglm::vec3 scale, myglm::vec3 rotation, myglm::vec3 _position, float sizeRubik)
+    {
+        this->sizeRubik = sizeRubik;
+        this->center = _position;
+        float sizeSingleCube = sizeRubik / 3.0f;
+        float offSetPos = sizeSingleCube;
+
+        scale = myglm::vec3(sizeSingleCube, sizeSingleCube, sizeSingleCube);
+        rotation = myglm::vec3(0.0f);
+
+        std::vector<myglm::vec4> colors = {
+            myglm::vec4(1.0f, 1.0f, 1.0f, 1.0f), // White
+            myglm::vec4(1.0f, 0.5f, 0.0f, 1.0f), // Orange
+            myglm::vec4(0.0f, 0.0f, 1.0f, 1.0f), // Blue
+            myglm::vec4(1.0f, 0.0f, 0.0f, 1.0f), // Red
+            myglm::vec4(0.0f, 1.0f, 0.0f, 1.0f), // Green
+            myglm::vec4(1.0f, 1.0f, 0.0f, 1.0f)  // Yellow
+        };
+
+        myglm::vec4 gray(0.5f, 0.5f, 0.5f, 1.0f);
+        int indice = 0;
+        
+        for (int i = 0; i < 3; i++)
+            for (int j = 0; j < 3; j++)
+                for (int k = 0; k < 3; k++)
+                {
+                    myglm::vec3 position(
+                        _position.x + sizeSingleCube * k - offSetPos,
+                        _position.y + sizeSingleCube * j - offSetPos,
+                        _position.z + sizeSingleCube * i - offSetPos);
+
+                    std::vector<myglm::vec4> fColors(6, gray);
+
+                    if (i == 0) fColors[0] = colors[4]; // Front (-Z) = Green
+                    if (i == 2) fColors[1] = colors[2]; // Back (+Z) = Blue
+                    if (k == 0) fColors[2] = colors[1]; // Left (-X) = Orange
+                    if (k == 2) fColors[3] = colors[3]; // Right (+X) = Red
+                    if (j == 2) fColors[4] = colors[0]; // Up (+Y) = White
+                    if (j == 0) fColors[5] = colors[5]; // Down (-Y) = Yellow
+
+                    cubes[k][j][i] = new SingleRubikCube(position, scale, rotation, fColors, indice);
+                    cubes[k][j][i]->iscube = true;
+					cubes[k][j][i]->isDirty = true;
+                    indice++;
+                }
+    }
+
+    void addToScene(Scene &scene)
+    {
+        for (int i = 0; i < 3; i++)
+            for (int j = 0; j < 3; j++)
+                for (int k = 0; k < 3; k++)
+                    scene.shapePointers.push_back(cubes[k][j][i]);
+    }
+
+    void updateCubePosition(int x, int y, int z)
+    {
+        float sizeSingleCube = sizeRubik / 3.0f;
+        float offSetPos = sizeSingleCube;
+        
+        myglm::vec3 position(
+            center.x + sizeSingleCube * x - offSetPos,
+            center.y + sizeSingleCube * y - offSetPos,
+            center.z + sizeSingleCube * z - offSetPos);
+        
+        cubes[x][y][z]->setPosition(position);
+    }
+
+	void updateAllColors()
+    {
+        // Colores estándar del Rubik
+        myglm::vec4 colorWhite(1.0f, 1.0f, 1.0f, 1.0f);
+        myglm::vec4 colorOrange(1.0f, 0.5f, 0.0f, 1.0f);
+        myglm::vec4 colorBlue(0.0f, 0.0f, 1.0f, 1.0f);
+        myglm::vec4 colorRed(1.0f, 0.0f, 0.0f, 1.0f);
+        myglm::vec4 colorGreen(0.0f, 1.0f, 0.0f, 1.0f);
+        myglm::vec4 colorYellow(1.0f, 1.0f, 0.0f, 1.0f);
+        myglm::vec4 colorGray(0.5f, 0.5f, 0.5f, 1.0f);
+
+        for (int x = 0; x < 3; x++)
+        {
+            for (int y = 0; y < 3; y++)
+            {
+                for (int z = 0; z < 3; z++)
+                {
+                    SingleRubikCube* cube = cubes[x][y][z];
+                    
+                    // Empezamos todas las caras en gris
+                    std::vector<myglm::vec4> newColors(6, colorGray);
+
+                    // Asignamos colores solo a las caras que están en el exterior
+                    if (x == 0) newColors[2] = colorOrange; // Izquierda (-X)
+                    if (x == 2) newColors[3] = colorRed;    // Derecha (+X)
+                    if (y == 0) newColors[5] = colorYellow; // Abajo (-Y)
+                    if (y == 2) newColors[4] = colorWhite;  // Arriba (+Y)
+                    if (z == 0) newColors[0] = colorGreen;  // Frente (-Z)
+                    if (z == 2) newColors[1] = colorBlue;   // Atrás (+Z)
+
+                    cube->setFaceColors(newColors);
+                }
+            }
+        }
+    }
+	
+    void updateAllPositions()
+    {
+        for (int x = 0; x < 3; x++)
+            for (int y = 0; y < 3; y++)
+                for (int z = 0; z < 3; z++)
+                    updateCubePosition(x, y, z);
+    }
+
+    // Rotación lógica en X (intercambia punteros)
+    void rotateLogicX(int layer, bool cw)
+    {
+        SingleRubikCube *temp[3][3];
+
+        // Copiar capa actual
+        for (int y = 0; y < 3; y++)
+            for (int z = 0; z < 3; z++)
+                temp[y][z] = cubes[layer][y][z];
+
+        // Rotar matriz 2D (y, z)
+        for (int y = 0; y < 3; y++)
+            for (int z = 0; z < 3; z++)
+            {
+                if (cw)
+                    cubes[layer][y][z] = temp[2 - z][y];      // Horario
+                else
+                    cubes[layer][y][z] = temp[z][2 - y];      // Anti-horario
+            }
+    }
+    // Rotación visual en X (aplica rotación a los cubos)
+    void rotateVisualX(int layer, bool cw)
+    {
+        float angle = cw ? -myglm::radians(90.0f) : myglm::radians(90.0f);
+
+        for (int y = 0; y < 3; y++)
+            for (int z = 0; z < 3; z++)
+            {
+                cubes[layer][y][z]->applyRotation(angle, myglm::vec3(1.0f, 0.0f, 0.0f));
+            }
+    }
+
+    // Rotación lógica en Y
+    void rotateLogicY(int layer, bool cw)
+    {
+        SingleRubikCube *temp[3][3];
+
+        for (int x = 0; x < 3; x++)
+            for (int z = 0; z < 3; z++)
+                temp[x][z] = cubes[x][layer][z];
+
+        for (int x = 0; x < 3; x++)
+            for (int z = 0; z < 3; z++)
+            {
+                if (cw)
+                    cubes[x][layer][z] = temp[z][2 - x];      // Horario
+                else
+                    cubes[x][layer][z] = temp[2 - z][x];      // Anti-horario
+            }
+    }
+
+    // Rotación visual en Y
+    void rotateVisualY(int layer, bool cw)
+    {
+        float angle = cw ? -myglm::radians(90.0f) : myglm::radians(90.0f);
+
+        for (int x = 0; x < 3; x++)
+            for (int z = 0; z < 3; z++)
+            {
+                cubes[x][layer][z]->applyRotation(angle, myglm::vec3(0.0f, 1.0f, 0.0f));
+            }
+    }
+
+    // Rotación lógica en Z
+    void rotateLogicZ(int layer, bool cw)
+    {
+        SingleRubikCube *temp[3][3];
+
+        for (int x = 0; x < 3; x++)
+            for (int y = 0; y < 3; y++)
+                temp[x][y] = cubes[x][y][layer];
+
+        for (int x = 0; x < 3; x++)
+            for (int y = 0; y < 3; y++)
+            {
+                if (cw)
+                    cubes[x][y][layer] = temp[2 - y][x];      // Horario
+                else
+                    cubes[x][y][layer] = temp[y][2 - x];      // Anti-horario
+            }
+    }
+
+    // Rotación visual en Z
+    void rotateVisualZ(int layer, bool cw)
+    {
+        float angle = cw ? -myglm::radians(90.0f) : myglm::radians(90.0f);
+
+        for (int x = 0; x < 3; x++)
+            for (int y = 0; y < 3; y++)
+            {
+                cubes[x][y][layer]->applyRotation(angle, myglm::vec3(0.0f, 0.0f, 1.0f));
+            }
+    }
+
+    // Métodos públicos para rotar capas completas
+    void rotateLayerX(int layer, bool cw)
+	{
+		// 1. Intercambio Lógico (Punteros)
+		rotateLogicX(layer, cw);
+
+		float angle = cw ? -myglm::radians(90.0f) : myglm::radians(90.0f);
+		
+		// 2. Actualización Visual y de Datos
+		for (int y = 0; y < 3; y++) {
+			for (int z = 0; z < 3; z++) {
+				SingleRubikCube* c = cubes[layer][y][z];
+				
+				// A. Giramos la malla 3D (Visual)
+				c->applyRotation(angle, myglm::vec3(1.0f, 0.0f, 0.0f));
+				
+				// B. Giramos el array de colores (Lógica de stickers)
+				c->rotateFaceColors(0, cw);
+				
+				// C. Fijamos la nueva posición física
+				c->setPosition(myglm::vec3(
+					center.x + (sizeRubik/3.0f) * layer - (sizeRubik/3.0f),
+					center.y + (sizeRubik/3.0f) * y - (sizeRubik/3.0f),
+					center.z + (sizeRubik/3.0f) * z - (sizeRubik/3.0f)));
+			}
+		}
+	}
+
+    void rotateLayerY(int layer, bool cw)
+	{
+		rotateLogicY(layer, cw);
+
+		float angle = cw ? -myglm::radians(90.0f) : myglm::radians(90.0f);
+
+		for (int x = 0; x < 3; x++) {
+			for (int z = 0; z < 3; z++) {
+				SingleRubikCube* c = cubes[x][layer][z];
+				
+				c->applyRotation(angle, myglm::vec3(0.0f, 1.0f, 0.0f));
+				c->rotateFaceColors(1, cw); // Eje Y
+				
+				c->setPosition(myglm::vec3(
+					center.x + (sizeRubik/3.0f) * x - (sizeRubik/3.0f),
+					center.y + (sizeRubik/3.0f) * layer - (sizeRubik/3.0f),
+					center.z + (sizeRubik/3.0f) * z - (sizeRubik/3.0f)));
+			}
+		}
+	}
+
+    void rotateLayerZ(int layer, bool cw)
+	{
+		rotateLogicZ(layer, cw);
+		
+		float angle = cw ? -myglm::radians(90.0f) : myglm::radians(90.0f);
+
+		for (int x = 0; x < 3; x++) {
+			for (int y = 0; y < 3; y++) {
+				SingleRubikCube* c = cubes[x][y][layer];
+				
+				c->applyRotation(angle, myglm::vec3(0.0f, 0.0f, 1.0f));
+				c->rotateFaceColors(2, cw); // Eje Z
+				
+				c->setPosition(myglm::vec3(
+					center.x + (sizeRubik/3.0f) * x - (sizeRubik/3.0f),
+					center.y + (sizeRubik/3.0f) * y - (sizeRubik/3.0f),
+					center.z + (sizeRubik/3.0f) * layer - (sizeRubik/3.0f)));
+			}
+		}
+	}
+
+    // Debug: Imprime el estado actual del cubo
+    void printRubik()
+    {
+        std::cout << "\n=== ESTADO DEL RUBIK ===\n";
+        for (int x = 0; x < 3; x++)
+        {
+            std::cout << "\n Nivel X=" << x << ":\n";
+            for (int y = 0; y < 3; y++)
+            {
+                for (int z = 0; z < 3; z++)
+                {
+                    std::cout << cubes[x][y][z]->indice << "  ";
+                }
+                std::cout << '\n';
+            }
+        }
+        std::cout << "========================\n\n";
+    }
+
+    ~Rubik()
+    {
+        for (int i = 0; i < 3; i++)
+            for (int j = 0; j < 3; j++)
+                for (int k = 0; k < 3; k++)
+                    delete cubes[i][j][k];
+    }
+};
+// glUniformMatrix4fv(lastViewLoc, 1, GL_FALSE, myglm::value_ptr(getTranformMatrix(rotateAroundOrigin)));
+// glUniformMatrix4fv(lastProjectionLoc, 1, GL_FALSE, myglm::value_ptr(getTranformMatrix(rotateAroundOrigin)));
+
+// callback
+void framebuffer_size_callback(GLFWwindow *window, int width, int height)
+{
+	glViewport(0, 0, width, height);
+}
+
+// Inputs
+void mouse_button_callback(GLFWwindow *window, int button, int action, int mods)
+{
+
+	// PizzaScene* scene = static_cast<PizzaScene*>(glfwGetWindowUserPointer(window));
+
+	// if (button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_PRESS)
+	// {
+	// double xpos, ypos;
+	// glfwGetCursorPos(window, &xpos, &ypos);
+
+	// int width, height;
+	// glfwGetWindowSize(window, &width, &height);
+
+	// float x = (2.0f * xpos) / width - 1.0f;
+	// float y = 1.0f - (2.0f * ypos) / height;
+
+	// float angle = atan2(y, x);
+
+	// // Normalize angle to 0 to 2*PI
+	// if (angle < 0) angle += 2.0f * M_PI;
+
+	// // Map angle to slice index
+	// float slice_angle = (2.0f * M_PI) / NUMBER_OF_SLICES;
+	// scene->selectedSlice = (int)(angle / slice_angle);
+
+	// std::cout << "Selected Slice: " << scene->selectedSlice << std::endl;
+	// }
+}
+
+void key_callback(GLFWwindow *window, int key, int scancode, int action, int mods)
+{
+
+	Scene *myScene = static_cast<Scene *>(glfwGetWindowUserPointer(window));
+
+	if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS)
+		glfwSetWindowShouldClose(window, true);
+
+	if (action == GLFW_PRESS)
+	{
+		switch (key)
+		{
+		case GLFW_KEY_RIGHT:
+			myScene->selectedShape++;
+			if (myScene->selectedShape == myScene->shapePointers.size())
+			{
+				myScene->selectedShape = 0;
+			}
+			break;
+		case GLFW_KEY_LEFT:
+			myScene->selectedShape--;
+			if (myScene->selectedShape == -1)
+			{
+				myScene->selectedShape = myScene->shapePointers.size() - 1;
+			}
+			break;
+		case GLFW_KEY_X:
+			myScene->shapePointers[myScene->selectedShape]->setPosition(myScene->reset[0]);
+			myScene->shapePointers[myScene->selectedShape]->setRotation(myScene->reset[1]);
+			myScene->shapePointers[myScene->selectedShape]->setScale(myScene->reset[2]);
+			break;
+		case GLFW_KEY_V:
+			myScene->shapePointers[myScene->selectedShape]->swapVisibility();
+			break;
+		case GLFW_KEY_C:
+			myScene->shapePointers[myScene->selectedShape]->displayState();
+			break;
+		case GLFW_KEY_P:
+			myScene->shapePointers[myScene->selectedShape]->swapRotationState();
+			break;
+		case GLFW_KEY_B:
+			myScene->toggleAnimation();
+			break;
+			// case GLFW_KEY_KP_5:
+			// myScene->shapePointers[myScene->selectedShape]->displayState();
+			// break;
+			// case GLFW_KEY_5:
+			// myScene->shapePointers[myScene->selectedShape]->displayState();
+			break;
+		default:
+			break;
+		}
+	}
+	if (action == GLFW_PRESS || action == GLFW_REPEAT)
+	{
+		switch (key)
+		{
+			// translate
+		case GLFW_KEY_W:
+			myScene->shapePointers[myScene->selectedShape]->translate(myScene->offsetTranslation[1]);
+			break;
+		case GLFW_KEY_S:
+			myScene->shapePointers[myScene->selectedShape]->translateInverse(myScene->offsetTranslation[1]);
+			break;
+		case GLFW_KEY_A:
+			myScene->shapePointers[myScene->selectedShape]->translateInverse(myScene->offsetTranslation[0]);
+			break;
+		case GLFW_KEY_D:
+			myScene->shapePointers[myScene->selectedShape]->translate(myScene->offsetTranslation[0]);
+			break;
+		case GLFW_KEY_Q:
+			myScene->shapePointers[myScene->selectedShape]->translateInverse(myScene->offsetTranslation[2]);
+			break;
+		case GLFW_KEY_E:
+			myScene->shapePointers[myScene->selectedShape]->translate(myScene->offsetTranslation[2]);
+			break;
+
+			// rotation
+
+		case GLFW_KEY_T:
+			myScene->shapePointers[myScene->selectedShape]->rotate(myScene->offsetRotation[0]);
+			break;
+		case GLFW_KEY_G:
+			myScene->shapePointers[myScene->selectedShape]->rotateInverse(myScene->offsetRotation[0]);
+			break;
+		case GLFW_KEY_F:
+			myScene->shapePointers[myScene->selectedShape]->rotate(myScene->offsetRotation[1]);
+			break;
+		case GLFW_KEY_H:
+			myScene->shapePointers[myScene->selectedShape]->rotateInverse(myScene->offsetRotation[1]);
+			break;
+		case GLFW_KEY_R:
+			myScene->shapePointers[myScene->selectedShape]->rotate(myScene->offsetRotation[2]);
+			break;
+		case GLFW_KEY_Y:
+			myScene->shapePointers[myScene->selectedShape]->rotateInverse(myScene->offsetRotation[2]);
+			break;
+			// Scale
+
+		case GLFW_KEY_I:
+			myScene->shapePointers[myScene->selectedShape]->scaleBy(myScene->offsetScale[1]);
+			break;
+		case GLFW_KEY_K:
+			myScene->shapePointers[myScene->selectedShape]->scaleByInverse(myScene->offsetScale[1]);
+			break;
+		case GLFW_KEY_J:
+			myScene->shapePointers[myScene->selectedShape]->scaleByInverse(myScene->offsetScale[0]);
+			break;
+		case GLFW_KEY_L:
+			myScene->shapePointers[myScene->selectedShape]->scaleBy(myScene->offsetScale[0]);
+			break;
+		case GLFW_KEY_U:
+			myScene->shapePointers[myScene->selectedShape]->scaleByInverse(myScene->offsetScale[2]);
+			break;
+		case GLFW_KEY_O:
+			myScene->shapePointers[myScene->selectedShape]->scaleBy(myScene->offsetScale[2]);
+			break;
+
+		// global scale
+		case GLFW_KEY_N:
+			myScene->shapePointers[myScene->selectedShape]->scaleByInverse(myScene->offsetScale[2].z);
+			break;
+		case GLFW_KEY_M:
+			myScene->shapePointers[myScene->selectedShape]->scaleBy(myScene->offsetScale[2].z);
+			break;
+		case GLFW_KEY_1:
+			myScene->rotateCameraX(0.1f);
+			break;
+		case GLFW_KEY_2:
+			myScene->rotateCameraX(-0.1f);
+			break;
+		case GLFW_KEY_3:
+			myScene->rotateCameraY(0.1f);
+			break;
+		case GLFW_KEY_4:
+			myScene->rotateCameraY(-0.1f);
+			break;
+		// implementado a los 6 lados(faltarian su movimiento opuesto a cada uno)
+		case GLFW_KEY_5: myScene->rubik->rotateLayerX(0, true); break;  // L
+		case GLFW_KEY_6: myScene->rubik->rotateLayerX(2, false); break; // R
+		case GLFW_KEY_7: myScene->rubik->rotateLayerY(0, true); break;  // D
+		case GLFW_KEY_8: myScene->rubik->rotateLayerY(2, false); break; // U
+		case GLFW_KEY_9: myScene->rubik->rotateLayerZ(0, true); break;  // F
+		case GLFW_KEY_0: myScene->rubik->rotateLayerZ(2, false); break; // B
+		
+		default:
+			break;
+		}
+	}
+}
+
+int main()
+{
+
+	glfwInit();
+	glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
+	glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
+	glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
+	// glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE);
+
+	GLFWwindow *window = glfwCreateWindow(WIDTH, HEIGHT, "UwU", NULL, NULL);
+	if (window == NULL)
+	{
+		std::cout << "Failed to create GLFW window" << std::endl;
+		glfwTerminate();
+		return -1;
+	}
+	glfwMakeContextCurrent(window);
+	glfwSetFramebufferSizeCallback(window, framebuffer_size_callback);
+
+	if (!gladLoadGL(glfwGetProcAddress))
+	{
+		std::cout << "Failed to initialize GLAD" << std::endl;
+		return -1;
+	}
+
+	// creamos el vertex
+	unsigned int vertexShader;
+	vertexShader = glCreateShader(GL_VERTEX_SHADER);
+	glShaderSource(vertexShader, 1, &vertexShaderSource, NULL);
+	glCompileShader(vertexShader);
+
+	int success;
+	char infoLog[512];
+	glGetShaderiv(vertexShader, GL_COMPILE_STATUS, &success);
+	if (!success)
+	{
+		glGetShaderInfoLog(vertexShader, 512, NULL, infoLog);
+		std::cout << "ERROR::SHADER::VERTEX::COMPILATION_FAILED\n"
+				  << infoLog << std::endl;
+	}
+
+	unsigned int fragmentShaders[4];
+	const char *fragmentShaderSources[4] = {fragmentShaderSourceUniform,
+											fragmentShaderSource1,
+											fragmentShaderSource2,
+											fragmentShaderSource3};
+
+	for (int i = 0; i < 4; i++)
+	{
+		fragmentShaders[i] = glCreateShader(GL_FRAGMENT_SHADER);
+		glShaderSource(fragmentShaders[i], 1, &fragmentShaderSources[i], NULL);
+		glCompileShader(fragmentShaders[i]);
+		// error checking
+		glGetShaderiv(fragmentShaders[i], GL_COMPILE_STATUS, &success);
+		if (!success)
+		{
+			glGetShaderInfoLog(fragmentShaders[i], 512, NULL, infoLog);
+			std::cout << "ERROR::SHADER::FRAGMENT::COMPILATION_FAILED\n"
+					  << infoLog << std::endl;
+		}
+	}
+
+	unsigned int shaderPrograms[4];
+	for (int i = 0; i < 4; i++)
+	{
+		shaderPrograms[i] = glCreateProgram();
+
+		glAttachShader(shaderPrograms[i], vertexShader);
+		glAttachShader(shaderPrograms[i], fragmentShaders[i]);
+		glLinkProgram(shaderPrograms[i]);
+
+		glGetProgramiv(shaderPrograms[i], GL_LINK_STATUS, &success);
+		if (!success)
+		{
+			glGetProgramInfoLog(shaderPrograms[i], 512, NULL, infoLog);
+			std::cout << "ERROR::SHADER::PROGRAM::LINKING_FAILED\n"
+					  << infoLog << std::endl;
+		}
+		glDeleteShader(fragmentShaders[i]);
+	}
+	glDeleteShader(vertexShader);
+
+	glPointSize(10.0f);
+	glLineWidth(5.0f);
+	glClearColor(0.2f, 0.3f, 0.3f, 1.0f);
+
+	glEnable(GL_DEPTH_TEST);
+
+	// inputs
+	glfwSetMouseButtonCallback(window, mouse_button_callback);
+	glfwSetKeyCallback(window, key_callback);
+
+	Scene myScene;
+	myScene.updateCamera();
+
+	float sizeRubik = 1.0f;
+	float sizeSingleCube = sizeRubik / 3;
+	float offSetPos = sizeSingleCube;
+
+	myglm::vec3 scale(sizeSingleCube, sizeSingleCube, sizeSingleCube);
+	myglm::vec3 rotation(0.0f, 0.0f, 0.0f);
+	myglm::vec3 _position(0.0f, 0.0f, 0.0f);
+
+	// ejcl
+	Rubik *rubik = new Rubik(scale, rotation, _position, sizeRubik);
+	myScene.rubik = rubik;
+	rubik->addToScene(myScene);
+
+	/*
+		std::vector<myglm::vec4> colors = {
+			myglm::vec4(1.0f, 1.0f, 1.0f, 1.0f), // White
+			myglm::vec4(1.0f, 0.5f, 0.0f, 1.0f), // Orange
+			myglm::vec4(0.0f, 0.0f, 1.0f, 1.0f), // Blue
+			myglm::vec4(1.0f, 0.0f, 0.0f, 1.0f), // Red
+			myglm::vec4(0.0f, 1.0f, 0.0f, 1.0f), // Green
+			myglm::vec4(1.0f, 1.0f, 0.0f, 1.0f)	 // Yellow
+		};
+
+		myglm::vec4 gray(0.5f, 0.5f, 0.5f, 1.0f);
+		std::vector<SingleRubikCube *> cubes;
+
+		for (int i = 0; i < 3; i++)
+		{
+			for (int j = 0; j < 3; j++)
+			{
+				for (int k = 0; k < 3; k++)
+				{
+
+					myglm::vec3 position(
+						_position.x + sizeSingleCube * k - offSetPos,
+						_position.y + sizeSingleCube * j - offSetPos,
+						_position.z + sizeSingleCube * i - offSetPos);
+
+					std::vector<myglm::vec4> fColors(6, gray);
+
+					if (i == 0)
+						fColors[0] = myglm::vec4(colors[4]); // Front face (-Z) gets Green
+					if (i == 2)
+						fColors[1] = myglm::vec4(colors[2]); // Back face (+Z) gets Blue
+					if (k == 0)
+						fColors[2] = myglm::vec4(colors[1]); // Left face (-X) gets Orange
+					if (k == 2)
+						fColors[3] = myglm::vec4(colors[3]); // Right face (+X) gets Red
+					if (j == 2)
+						fColors[4] = myglm::vec4(colors[0]); // Up face (+Y) gets White
+					if (j == 0)
+						fColors[5] = myglm::vec4(colors[5]); // Down face (-Y) gets Yellow
+
+					cubes.push_back(new SingleRubikCube(position, scale, rotation, fColors));
+					myScene.shapePointers.push_back(cubes[cubes.size() - 1]);
+				}
+			}
+		}
+	*/
+	// myglm::vec3 position1(0.4f, 0.0f, 0.0f);
+	// myglm::vec3 scale1(0.5f, 0.5f, 0.5f);
+	// myglm::vec3 rotation1(0.0f, 0.0f, 0.0f);
+	// Cube cube1(position1, scale1, rotation1);
+	// myScene.shapePointers.push_back(&cube1);
+
+	// myglm::vec3 position2(-0.4f, 0.0f, 0.0f);
+	// myglm::vec3 scale2(0.5f, 0.5f, 0.5f);
+	// myglm::vec3 rotation2(0.5f, 0.5f, 0.5f);
+	// Cube cube2(position2, scale2, rotation2);
+	// myScene.shapePointers.push_back(&cube2);
+
+	// myglm::vec3 position3(-0.4f, 0.0f, 0.0f);
+	// myglm::vec3 scale3(0.5f, 0.5f, 0.5f);
+	// myglm::vec3 rotation3(0.0f, 0.0f, 0.0f);
+	// Pyramid pyra1(position3, scale3, rotation3, getRadiusForNEdges(4),1,4);
+	// myScene.shapePointers.push_back(&pyra1);
+
+	// std::cout<<getRadiusForNEdges(3)<<std::endl;
+
+	// myglm::vec3 position4(0.0f, 0.5f, 0.0f);
+	// myglm::vec3 scale4(0.5f, 0.5f, 0.5f);
+	// myglm::vec3 rotation4(0.0f, 0.0f, 0.0f);
+	// Sphere sphere1(position4, scale4, rotation4, 0.5f, 50, 25);
+	// myScene.shapePointers.push_back(&sphere1);
+
+	// myglm::vec3 position5(0.0f, -0.5f, 0.0f);
+	// myglm::vec3 scale5(0.5f, 0.5f, 0.5f);
+	// myglm::vec3 rotation5(0.5f, 0.5f, 0.5f);
+	// Prism prims1(position5, scale5, rotation5);
+	// myScene.shapePointers.push_back(&prims1);
+
+	// myglm::vec3 position6(-0.5f, -0.5f, 0.0f);
+	// myglm::vec3 scale6(0.5f, 0.5f, 0.5f);
+	// myglm::vec3 rotation6(0.5f, 0.5f, 0.5f);
+	// Prism prims2(position6, scale6, rotation6,0.25f,0.5f,4);
+	// myScene.shapePointers.push_back(&prims2);
+
+	// myglm::vec3 position7(0.5f, -0.5f, 0.0f);
+	// myglm::vec3 scale7(0.5f, 0.5f, 0.5f);
+	// myglm::vec3 rotation7(0.5f, 0.5f, 0.5f);
+	// Prism prims3(position7, scale7, rotation7,0.5f,0.5f,100);
+	// myScene.shapePointers.push_back(&prims3);
+
+	glfwSetWindowUserPointer(window, &myScene);
+
+	std::cout << "**LEFT-RIGHT to select a shape\n\n"
+			  <<
+
+		"A-D to translate in the x-axis\n"
+			  << "W-S to translate in the y-axis\n"
+			  << "Q-E to translate in the z-axis\n\n"
+			  <<
+
+		"T-G to rotate around x-axis\n"
+			  << "F-H to rotate around y-axis\n"
+			  << "R-Y to rotate around z-axis\n\n"
+			  <<
+
+		"J-L to scale in the x-axis\n"
+			  << "I-K to scale in the y-axis\n"
+			  << "U-O to scale in the z-axis\n\n"
+			  <<
+
+		"N-M to scale in all axes\n\n"
+			  <<
+
+		"X to set to default state\n"
+			  << "C to set to default state\n"
+			  << "V to swap visibility\n"
+			  << "ESC to close window\n\n";
+
+	while (!glfwWindowShouldClose(window))
+	{
+		// glClear(GL_COLOR_BUFFER_BIT);
+		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+		myScene.run(shaderPrograms[0]);
+
+		glfwSwapBuffers(window);
+		glfwPollEvents();
+	}
+
+	for (int i = 0; i < 4; i++)
+	{
+		glDeleteProgram(shaderPrograms[i]);
+	}
+
+	glfwTerminate();
+	return 0;
+}
