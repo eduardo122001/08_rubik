@@ -23,6 +23,7 @@ struct CubeMove;
 
 Scene* g_SceneInstance = nullptr;
 RubikCube* g_RubikInstance = nullptr;
+std::vector<std::string> g_MoveHistory;
 
 // Track the held state of arrow keys
 bool g_LeftPressed  = false;
@@ -407,7 +408,7 @@ public:
     
     float animationProgressAngle = 0.0f;
     float animationTargetAngle = 0.0f;
-    float rotationSpeed = 400.0f; 
+    float rotationSpeed = 1800.0f; 
 
     std::queue<CubeMove> moveQueue;
 
@@ -455,6 +456,37 @@ public:
 
     void parseAndQueueMove(const std::string& moveStr) {
         if (moveStr.empty()) return;
+
+        // if (moveStr == "FlipU") {
+        //     parseAndQueueMove("R");
+        //     parseAndQueueMove("L'");
+        //     parseAndQueueMove("M'");
+        //     return;
+        // }
+        // if (moveStr == "FlipD") {
+        //     parseAndQueueMove("R'");
+        //     parseAndQueueMove("L");
+        //     parseAndQueueMove("M");
+        //     return;
+        // }
+        // if (moveStr == "FlipR") {
+        //     parseAndQueueMove("U'");
+        //     parseAndQueueMove("D");
+        //     parseAndQueueMove("E"); // Matches your internal follow-D angle mapping
+        //     return;
+        // }
+        // if (moveStr == "FlipL") {
+        //     parseAndQueueMove("U");
+        //     parseAndQueueMove("D'");
+        //     parseAndQueueMove("E'");
+        //     return;
+        // }
+        // if (moveStr == "Rotate") {
+        //     parseAndQueueMove("F");
+        //     parseAndQueueMove("B'");
+        //     parseAndQueueMove("S");
+        //     return;
+        // }
 
         CubeMove move;
         move.notation = moveStr;
@@ -586,8 +618,6 @@ public:
     }
 
     void scramble(int movesCount = 20) {
-        // A complete 27-move pool covering all outer layers and middle slices
-        // across standard (90°), prime (-90°), and double (180°) variations.
         std::string movePool[] = {
             "U", "U'", "U2",
             "D", "D'", "D2",
@@ -600,10 +630,18 @@ public:
             "S", "S'", "S2"
         };
 
+        // Ensure the global history array knows about this sequence
+        extern std::vector<std::string> g_MoveHistory; 
+
         for (int i = 0; i < movesCount; i++) {
-            // Updated modulo to match the new 27-element pool size
             int randIndex = std::rand() % 27;
-            parseAndQueueMove(movePool[randIndex]);
+            std::string randomMove = movePool[randIndex];
+            
+            // 1. Send to your visualizer queue
+            parseAndQueueMove(randomMove);
+            
+            // 2. Track it in your historical reversal stack
+            g_MoveHistory.push_back(randomMove);
         }
     }
 
@@ -612,208 +650,92 @@ public:
         return myglm::rotate(myglm::mat4(1.0f), myglm::radians(animationProgressAngle), currentAnimationAxis);
     }
 
-    ~RubikCube() {
-        for (Cubie* piece : cubies) delete piece;
+    char convertVectorColorToChar(const myglm::vec4& color) {
+        // Reference your palette values exactly from your constructor setup:
+        // palette[0] = White, palette[1] = Orange, palette[2] = Blue, 
+        // palette[3] = Red,   palette[4] = Green,  palette[5] = Yellow
+        
+        if (std::abs(color.x - 1.0f) < 0.01f && std::abs(color.y - 1.0f) < 0.01f && std::abs(color.z - 1.0f) < 0.01f) return 'U'; // White (Up)
+        if (std::abs(color.x - 1.0f) < 0.01f && std::abs(color.y - 0.0f) < 0.01f && std::abs(color.z - 0.0f) < 0.01f) return 'R'; // Red (Right)
+        if (std::abs(color.x - 0.0f) < 0.01f && std::abs(color.y - 0.0f) < 0.01f && std::abs(color.z - 1.0f) < 0.01f) return 'F'; // Blue (Front)
+        if (std::abs(color.x - 1.0f) < 0.01f && std::abs(color.y - 1.0f) < 0.01f && std::abs(color.z - 0.0f) < 0.01f) return 'D'; // Yellow (Down)
+        if (std::abs(color.x - 1.0f) < 0.01f && std::abs(color.y - 0.5f) < 0.01f && std::abs(color.z - 0.0f) < 0.01f) return 'L'; // Orange (Left)
+        if (std::abs(color.x - 0.0f) < 0.01f && std::abs(color.y - 1.0f) < 0.01f && std::abs(color.z - 0.0f) < 0.01f) return 'B'; // Green (Back)
+        
+        return 'X'; // Internal black or error fallback
     }
-};
-/*
-class RubikSolver {
-private:
-    RubikCube* cube;
 
-    struct VirtualCubie {
-        Cubie* realCubie;
-        int x, y, z;
-        myglm::mat4 vMatrix;
-    };
-
-    std::vector<VirtualCubie> vCubies;
-
-    VirtualCubie* getVirtualCubieAt(int x, int y, int z) {
-        for (auto& vc : vCubies) {
-            if (vc.x == x && vc.y == y && vc.z == z) return &vc;
+    Cubie* getCubieAt(int x, int y, int z) {
+        for (Cubie* cubie : cubies) {
+            if (cubie->gridX == x && cubie->gridY == y && cubie->gridZ == z) {
+                return cubie;
+            }
         }
         return nullptr;
     }
 
-    bool isColorEqual(const myglm::vec4& c1, const myglm::vec4& c2) {
-        return (std::abs(c1.x - c2.x) < 0.01f &&
-                std::abs(c1.y - c2.y) < 0.01f &&
-                std::abs(c1.z - c2.z) < 0.01f);
-    }
+    std::string generateFaceletString() {
+        std::string faceletString = "";
+        faceletString.reserve(54); // Memory optimization allocation
 
-    myglm::vec4 getVirtualColorFacing(const VirtualCubie& vc, const myglm::vec3& targetWorldDir) {
-        myglm::vec3 originalFaceDirs[6] = {
-            myglm::vec3(0.0f, 0.0f, -1.0f), // 0: Front (-Z)
-            myglm::vec3(0.0f, 0.0f,  1.0f), // 1: Back (+Z)
-            myglm::vec3(-1.0f, 0.0f, 0.0f), // 2: Left (-X)
-            myglm::vec3( 1.0f, 0.0f, 0.0f), // 3: Right (+X)
-            myglm::vec3(0.0f,  1.0f, 0.0f), // 4: Up (+Y)
-            myglm::vec3(0.0f, -1.0f, 0.0f)  // 5: Down (-Y)
-        };
-
-        float bestDot = -2.0f;
-        int matchingFaceIdx = 0;
-
-        for (int i = 0; i < 6; i++) {
-            myglm::vec4 directionVec4(originalFaceDirs[i], 0.0f);
-            myglm::vec4 transformedVec4 = vc.vMatrix * directionVec4;
-            myglm::vec3 currentWorldDir(transformedVec4.x, transformedVec4.y, transformedVec4.z);
-            
-            float dotVal = myglm::dot(currentWorldDir, targetWorldDir);
-            if (dotVal > bestDot) {
-                bestDot = dotVal;
-                matchingFaceIdx = i;
-            }
-        }
-        return vc.realCubie->faceColors[matchingFaceIdx];
-    }
-
-    void executeMove(const std::string& moveStr) {
-        cube->parseAndQueueMove(moveStr); 
-
-        char face = moveStr[0];
-        bool isPrime = (moveStr.size() > 1 && moveStr[1] == '\'');
-        bool isDouble = (moveStr.size() > 1 && moveStr[1] == '2');
-        float baseAngle = 90.0f;
-        if (isPrime) baseAngle = -90.0f;
-        if (isDouble) baseAngle = 180.0f;
-
-        myglm::vec3 axis(0.0f);
-        float angle = 0.0f;
-        int targetLayer = 0; 
-        int axisType = 0; 
-
-        switch (face) {
-            case 'U': axis = myglm::vec3(0.0f, 1.0f, 0.0f);  angle = -baseAngle; targetLayer = 1;  axisType = 1; break;
-            case 'D': axis = myglm::vec3(0.0f, 1.0f, 0.0f);  angle = baseAngle;  targetLayer = -1; axisType = 1; break;
-            case 'R': axis = myglm::vec3(1.0f, 0.0f, 0.0f);  angle = -baseAngle; targetLayer = 1;  axisType = 0; break;
-            case 'L': axis = myglm::vec3(1.0f, 0.0f, 0.0f);  angle = baseAngle;  targetLayer = -1; axisType = 0; break;
-            case 'F': axis = myglm::vec3(0.0f, 0.0f, 1.0f);  angle = -baseAngle; targetLayer = 1;  axisType = 2; break; // Z = 1 Front
-            case 'B': axis = myglm::vec3(0.0f, 0.0f, 1.0f);  angle = baseAngle;  targetLayer = -1; axisType = 2; break; // Z = -1 Back
-        }
-
-        myglm::mat4 rotMatrix = myglm::rotate(myglm::mat4(1.0f), myglm::radians(angle), axis);
-
-        for (auto& vc : vCubies) {
-            bool inActiveSlice = false;
-            if (axisType == 0 && vc.x == targetLayer) inActiveSlice = true;
-            if (axisType == 1 && vc.y == targetLayer) inActiveSlice = true;
-            if (axisType == 2 && vc.z == targetLayer) inActiveSlice = true;
-
-            if (inActiveSlice) {
-                vc.vMatrix = rotMatrix * vc.vMatrix;
-                myglm::vec4 p(static_cast<float>(vc.x), static_cast<float>(vc.y), static_cast<float>(vc.z), 1.0f);
-                myglm::vec4 updatedP = rotMatrix * p;
-                vc.x = static_cast<int>(std::round(updatedP.x));
-                vc.y = static_cast<int>(std::round(updatedP.y));
-                vc.z = static_cast<int>(std::round(updatedP.z));
-            }
-        }
-    }
-
-public:
-    RubikSolver(RubikCube* targetCube) : cube(targetCube) {
-        for (Cubie* c : cube->cubies) {
-            VirtualCubie vc;
-            vc.realCubie = c;
-            vc.x = c->gridX;
-            vc.y = c->gridY;
-            vc.z = c->gridZ;
-            vc.vMatrix = c->homeMatrix;
-            vCubies.push_back(vc);
-        }
-    }
-
-    void solve() {
-        std::cout << "[SOLVER] Running dynamic logic pathfinder..." << std::endl;
+        // Define scanning sequences to match standard U-R-F-D-L-B facelet requirements
         
-        myglm::vec4 white(1.0f, 1.0f, 1.0f, 1.0f);
-        myglm::vec4 blue(0.0f, 0.0f, 1.0f, 1.0f);    // Front Face (Z = 1)
-        myglm::vec4 red(1.0f, 0.0f, 0.0f, 1.0f);     // Right Face (X = 1)
-        myglm::vec4 green(0.0f, 1.0f, 0.0f, 1.0f);   // Back Face (Z = -1)
-        myglm::vec4 orange(1.0f, 0.5f, 0.0f, 1.0f);  // Left Face (X = -1)
+        // 1. UP FACE (White)
+        for (int z = -1; z <= 1; ++z) {
+            for (int x = -1; x <= 1; ++x) {
+                Cubie* c = getCubieAt(x, 1, z);
+                faceletString += convertVectorColorToChar(c->getColorFacingWorldDirection(myglm::vec3(0.0f, 1.0f, 0.0f)));
+            }
+        }
 
-        // Run the complete Phase 1 sequence for all 4 cross edges seamlessly
-        solveWhiteEdgeWithCenter(white, blue,   0,  1, "F");
-        solveWhiteEdgeWithCenter(white, red,    1,  0, "R");
-        solveWhiteEdgeWithCenter(white, green,  0, -1, "B");
-        solveWhiteEdgeWithCenter(white, orange, -1,  0, "L");
+        // 2. RIGHT FACE (Red)
+        for (int y = 1; y >= -1; --y) {
+            for (int z = -1; z <= 1; ++z) {
+                Cubie* c = getCubieAt(1, y, z);
+                faceletString += convertVectorColorToChar(c->getColorFacingWorldDirection(myglm::vec3(1.0f, 0.0f, 0.0f)));
+            }
+        }
 
-        std::cout << "[SOLVER] Move generation sequence complete." << std::endl;
+        // 3. FRONT FACE (Blue)
+        for (int y = 1; y >= -1; --y) {
+            for (int x = -1; x <= 1; ++x) {
+                Cubie* c = getCubieAt(x, y, 1);
+                faceletString += convertVectorColorToChar(c->getColorFacingWorldDirection(myglm::vec3(0.0f, 0.0f, 1.0f)));
+            }
+        }
+
+        // 4. DOWN FACE (Yellow)
+        for (int z = 1; z >= -1; --z) {
+            for (int x = -1; x <= 1; ++x) {
+                Cubie* c = getCubieAt(x, -1, z);
+                faceletString += convertVectorColorToChar(c->getColorFacingWorldDirection(myglm::vec3(0.0f, -1.0f, 0.0f)));
+            }
+        }
+
+        // 5. LEFT FACE (Orange)
+        for (int y = 1; y >= -1; --y) {
+            for (int z = 1; z >= -1; --z) {
+                Cubie* c = getCubieAt(-1, y, z);
+                faceletString += convertVectorColorToChar(c->getColorFacingWorldDirection(myglm::vec3(-1.0f, 0.0f, 0.0f)));
+            }
+        }
+
+        // 6. BACK FACE (Green)
+        for (int y = 1; y >= -1; --y) {
+            for (int x = 1; x >= -1; --x) {
+                Cubie* c = getCubieAt(x, y, -1);
+                faceletString += convertVectorColorToChar(c->getColorFacingWorldDirection(myglm::vec3(0.0f, 0.0f, -1.0f)));
+            }
+        }
+
+        return faceletString;
     }
 
-    void solveWhiteEdgeWithCenter(const myglm::vec4& white, const myglm::vec4& sideColor, int targetX, int targetZ, const std::string& faceNotation) {
-        VirtualCubie* targetEdge = nullptr;
-
-        // 1. FIXED: Added a strict 'nonBlackCount == 2' check to ignore corner pieces completely
-        for (auto& vc : vCubies) {
-            bool hasWhite = false, hasSideColor = false;
-            int nonBlackStickers = 0;
-            for (int f = 0; f < 6; f++) {
-                myglm::vec4 c = vc.realCubie->faceColors[f];
-                if (c.x > 0.16f || c.y > 0.16f || c.z > 0.16f) { 
-                    nonBlackStickers++;
-                    if (isColorEqual(c, white)) hasWhite = true;
-                    if (isColorEqual(c, sideColor)) hasSideColor = true;
-                }
-            }
-            if (hasWhite && hasSideColor && nonBlackStickers == 2) {
-                targetEdge = &vc;
-                break;
-            }
-        }
-
-        if (!targetEdge) return;
-
-        // 2. Check if the piece is ALREADY perfectly solved on the Top layer
-        if (targetEdge->x == targetX && targetEdge->y == 1 && targetEdge->z == targetZ) {
-            myglm::vec4 currentTopColor = getVirtualColorFacing(*targetEdge, myglm::vec3(0.0f, 1.0f, 0.0f));
-            if (isColorEqual(currentTopColor, white)) {
-                std::cout << "[SOLVER] Piece (" << faceNotation << ") is already solved. Skipping." << std::endl;
-                return; 
-            }
-        }
-
-        // 3. Bring the piece safely down to the bottom layer workspace setup (y == -1)
-        if (targetEdge->y == 1) { 
-            if (targetEdge->z == 1)       { executeMove("F2"); }
-            else if (targetEdge->x == 1)  { executeMove("R2"); }
-            else if (targetEdge->z == -1) { executeMove("B2"); }
-            else if (targetEdge->x == -1) { executeMove("L2"); }
-        }
-        else if (targetEdge->y == 0) { 
-            if (targetEdge->x == 1 && targetEdge->z == 1)        { executeMove("R'"); executeMove("D"); executeMove("R"); }
-            else if (targetEdge->x == -1 && targetEdge->z == 1)  { executeMove("L");  executeMove("D'"); executeMove("L'"); }
-            else if (targetEdge->x == 1 && targetEdge->z == -1)  { executeMove("R");  executeMove("D'"); executeMove("R'"); }
-            else if (targetEdge->x == -1 && targetEdge->z == -1) { executeMove("L'"); executeMove("D"); executeMove("L"); }
-        }
-
-        // 4. Rotate the bottom layer (D) until it sits directly underneath its home column
-        while (true) {
-            if (targetX == 0 && targetZ == 1  && targetEdge->z == 1)  break; // Front Column
-            if (targetX == 1 && targetZ == 0  && targetEdge->x == 1)  break; // Right Column
-            if (targetX == 0 && targetZ == -1 && targetEdge->z == -1) break; // Back Column
-            if (targetX == -1 && targetZ == 0 && targetEdge->x == -1) break; // Left Column
-            executeMove("D"); 
-        }
-
-        // 5. Inspect orientation from the bottom view perspective
-        myglm::vec4 facingDownColor = getVirtualColorFacing(*targetEdge, myglm::vec3(0.0f, -1.0f, 0.0f));
-        
-        if (isColorEqual(facingDownColor, white)) {
-            // Case A: White faces down. A simple 180° turn puts it perfectly in place on top!
-            executeMove(faceNotation + "2");
-        } else {
-            // Case B: FIXED. Symmetry-aligned 4-move flipper that protects adjacent cross slots
-            if (faceNotation == "F") { executeMove("D'"); executeMove("R'"); executeMove("F"); executeMove("R"); }
-            else if (faceNotation == "R") { executeMove("D'"); executeMove("B'"); executeMove("R"); executeMove("B"); }
-            else if (faceNotation == "B") { executeMove("D'"); executeMove("L'"); executeMove("B"); executeMove("L"); }
-            else if (faceNotation == "L") { executeMove("D'"); executeMove("F'"); executeMove("L"); executeMove("F"); }
-        }
+    ~RubikCube() {
+        for (Cubie* piece : cubies) delete piece;
     }
 };
-*/
+
 class Camera {
 public:
     // Core Vectors
@@ -1025,6 +947,41 @@ void framebuffer_size_callback(GLFWwindow* window, int width, int height) {
     }
 }
 
+void queueExternalSolution(const std::string& solutionString) {
+    if (solutionString.empty() || solutionString.find("Error") != std::string::npos) {
+        std::cout << "[SOLVER BRIDGE] Invalid or impossible layout string detected." << std::endl;
+        return;
+    }
+
+    std::stringstream ss(solutionString);
+    std::string currentMove;
+
+    std::cout << "[SOLVER BRIDGE] Pushing moves to engine: " << solutionString << std::endl;
+
+    // Tokenize space-separated solution moves smoothly
+    while (ss >> currentMove) {
+        // Feed each individual move token directly into your robust animation queue
+        g_RubikInstance->parseAndQueueMove(currentMove);
+    }
+}
+
+std::string getInverseMove(const std::string& move) {
+    if (move.empty()) return "";
+    
+    // If it's a prime move (e.g., "R'"), drop the prime to make it normal ("R")
+    if (move.back() == '\'') {
+        return move.substr(0, move.size() - 1);
+    } 
+    // If it's a double move (e.g., "R2"), the inverse is just "R2"
+    else if (move.back() == '2') {
+        return move; 
+    } 
+    // If it's a standard move (e.g., "R"), add a prime to invert it ("R'")
+    else {
+        return move + "'";
+    }
+}
+
 void key_callback(GLFWwindow* window, int key, int scancode, int action, int mods) {
     if (!g_SceneInstance || !g_RubikInstance) return;
 
@@ -1050,6 +1007,8 @@ void key_callback(GLFWwindow* window, int key, int scancode, int action, int mod
     switch (key) {
         // --- System Controls ---
         case GLFW_KEY_ESCAPE:
+            g_SceneInstance = nullptr;
+            g_RubikInstance = nullptr;
             glfwSetWindowShouldClose(window, GLFW_TRUE);
             break;
 
@@ -1065,53 +1024,81 @@ void key_callback(GLFWwindow* window, int key, int scancode, int action, int mod
 
         // --- Rubik's Cube Layer Rotations ---
         case GLFW_KEY_Q:
-            g_RubikInstance->queueLayerRotation(g_RubikInstance->layerLeft, angle, myglm::vec3(1.0f, 0.0f, 0.0f));
+            g_RubikInstance->parseAndQueueMove(shiftPressed ? "L'" : "L");
+            g_MoveHistory.push_back(shiftPressed ? "L'" : "L");
             break;
         case GLFW_KEY_W:
-            g_RubikInstance->queueLayerRotation(g_RubikInstance->layerMiddleX, angle, myglm::vec3(1.0f, 0.0f, 0.0f));
+            g_RubikInstance->parseAndQueueMove(shiftPressed ? "M'" : "M");
+            g_MoveHistory.push_back(shiftPressed ? "M'" : "M");
             break;
         case GLFW_KEY_E:
-            g_RubikInstance->queueLayerRotation(g_RubikInstance->layerRight, angle, myglm::vec3(1.0f, 0.0f, 0.0f));
+            g_RubikInstance->parseAndQueueMove(shiftPressed ? "R'" : "R");
+            g_MoveHistory.push_back(shiftPressed ? "R'" : "R");
             break;
 
         case GLFW_KEY_A:
-            g_RubikInstance->queueLayerRotation(g_RubikInstance->layerBottom, angle, myglm::vec3(0.0f, 1.0f, 0.0f));
+            g_RubikInstance->parseAndQueueMove(shiftPressed ? "D'" : "D");
+            g_MoveHistory.push_back(shiftPressed ? "D'" : "D");
             break;
         case GLFW_KEY_S:
-            g_RubikInstance->queueLayerRotation(g_RubikInstance->layerMiddleY, angle, myglm::vec3(0.0f, 1.0f, 0.0f));
+            g_RubikInstance->parseAndQueueMove(shiftPressed ? "E'" : "E");
+            g_MoveHistory.push_back(shiftPressed ? "E'" : "E");
             break;
         case GLFW_KEY_D:
-            g_RubikInstance->queueLayerRotation(g_RubikInstance->layerTop, angle, myglm::vec3(0.0f, 1.0f, 0.0f));
+            g_RubikInstance->parseAndQueueMove(shiftPressed ? "U'" : "U");
+            g_MoveHistory.push_back(shiftPressed ? "U'" : "U");
             break;
 
         case GLFW_KEY_Z:
-            g_RubikInstance->queueLayerRotation(g_RubikInstance->layerFront, angle, myglm::vec3(0.0f, 0.0f, 1.0f));
+            g_RubikInstance->parseAndQueueMove(shiftPressed ? "F'" : "F");
+            g_MoveHistory.push_back(shiftPressed ? "F'" : "F");
             break;
         case GLFW_KEY_X:
-            g_RubikInstance->queueLayerRotation(g_RubikInstance->layerMiddleZ, angle, myglm::vec3(0.0f, 0.0f, 1.0f));
+            g_RubikInstance->parseAndQueueMove(shiftPressed ? "S'" : "S");
+            g_MoveHistory.push_back(shiftPressed ? "S'" : "S");
             break;
         case GLFW_KEY_C:
-            g_RubikInstance->queueLayerRotation(g_RubikInstance->layerBack, angle, myglm::vec3(0.0f, 0.0f, 1.0f));
+            g_RubikInstance->parseAndQueueMove(shiftPressed ? "B'" : "B");
+            g_MoveHistory.push_back(shiftPressed ? "B'" : "B");
             break;
 
         case GLFW_KEY_P:
             g_RubikInstance->scramble(20);
+            // NOTE: You must also update your RubikCube::scramble() function internally 
+            // so that it pushes its 20 random moves into g_MoveHistory!
             break;
-        // case GLFW_KEY_O:
-        //     if (!g_RubikInstance->isAnimating && g_RubikInstance->moveQueue.empty()) {
-        //         RubikSolver solver(g_RubikInstance);
-        //         solver.solve();
-        //     } else {
-        //         std::cout << "[SYSTEM] Solver rejected: Cube is currently animating or queue is busy." << std::endl;
-        //     }
-        //     break;
+            
+        case GLFW_KEY_O: // The New History-Stack Solver
+            if (!g_RubikInstance->isAnimating && g_RubikInstance->moveQueue.empty()) {
+                
+                if (g_MoveHistory.empty()) {
+                    std::cout << "[SYSTEM] Cube is already at its starting state!" << std::endl;
+                } else {
+                    std::cout << "[SYSTEM] Initiating Reverse-History Solver (" << g_MoveHistory.size() << " moves)..." << std::endl;
 
+                    // Read the stack backwards (from most recent move to the very first move)
+                    for (auto it = g_MoveHistory.rbegin(); it != g_MoveHistory.rend(); ++it) {
+                        std::string invMove = getInverseMove(*it);
+                        g_RubikInstance->parseAndQueueMove(invMove);
+                    }
+                    
+                    // Clear the history because the cube is now returning to a solved state
+                    g_MoveHistory.clear();
+                    
+                    std::cout << "[SUCCESS] Reversal animations queued perfectly!" << std::endl;
+                }
+            } else {
+                std::cout << "[SYSTEM] Solver rejected: Cube is currently animating or queue is busy." << std::endl;
+            }
+            break;
+        
         default:
             break;
     }
 }
 
 int main() {
+    
     // 1. Initialize GLFW Context
     if (!glfwInit()) {
         std::cerr << "Failed to initialize GLFW" << std::endl;

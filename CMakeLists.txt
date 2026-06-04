@@ -1,4 +1,4 @@
-project( 08_Rubik_glfw )
+project( 08_Final_glfw )
 
 message( "Source of application:  ${CMAKE_SOURCE_DIR} " )
 message( "Subproject name:  ${PROJECT_NAME} " )
