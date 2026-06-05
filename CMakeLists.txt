@@ -1,4 +1,4 @@
-project( 08_Final_glfw )
+project( 11_Final_glfw )
 
 message( "Source of application:  ${CMAKE_SOURCE_DIR} " )
 message( "Subproject name:  ${PROJECT_NAME} " )
@@ -45,10 +45,26 @@ file(GLOB SOURCES "*.cpp" ${DEPENDENCY_DIR}/include/glad/glad/glad.c )
 file(GLOB HEADERS "*.h" )
 file(GLOB SHADERS "*.vert" "*.frag" "*.vs" "*.fs" )
 
+# ---> NEW: Dynamically grab all solver engine files directly.
+# This assumes the 'zz-optimal-core' folder is in the same directory as this CMake file.
+file(GLOB ZZ_SOURCES "zz-optimal-core/src/*.cpp")
+
+# ---> NEW: Remove the solver's main functions so they don't collide with your OpenGL main()
+list(REMOVE_ITEM ZZ_SOURCES 
+    "${CMAKE_CURRENT_SOURCE_DIR}/zz-optimal-core/src/main.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/zz-optimal-core/src/esp32_main.cpp"
+)
+
+# ---> NEW: Add the ZZ_SOURCES directly to your executable
 add_executable(
  ${PROJECT_NAME} WIN32 MACOSX_BUNDLE  
- ${HEADERS} ${SOURCES} ${SHADERS}
+ ${HEADERS} ${SOURCES} ${ZZ_SOURCES} ${SHADERS}
  ${ICON} ${GLAD_GL}   )
+
+# ---> NEW: Tell the executable where to find the solver headers
+target_include_directories(${PROJECT_NAME} PRIVATE zz-optimal-core/include)
+# ---> NEW: Define the macro the solver uses to optimize for desktop architectures
+target_compile_definitions(${PROJECT_NAME} PRIVATE DESKTOP_BUILD)
 
 message( "\nBuild mode test is: ${CMAKE_BUILD_TYPE}" )
 
@@ -58,7 +74,9 @@ message( "\nBuild C++ standard is: ${CMAKE_CXX_STANDARD}" )
 
 SET(SUBSYSTEM_LINK_FLAGS "-mconsole -mwindows")
 
+# Increase stack size to prevent deep-search stack overflows during FMC
+set_target_properties(${PROJECT_NAME} PROPERTIES LINK_FLAGS "-Wl,--stack,16777216")
+
 target_link_libraries(  ${PROJECT_NAME} 
                         ${SUBSYSTEM_LINK_FLAGS}
                         )
-

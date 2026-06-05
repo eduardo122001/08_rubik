@@ -5,6 +5,8 @@
 
 #include "myglm.h"
 
+#include "app_runner.h"
+
 #include <iostream>
 #include <fstream>
 #include <sstream>
@@ -345,40 +347,39 @@ public:
         glDrawElements(GL_LINES, 24, GL_UNSIGNED_INT, nullptr);
     }
 
-    // Returns the index of the color palette (0-5) currently facing an absolute world direction vector
-    myglm::vec4 getColorFacingWorldDirection(const myglm::vec3& targetWorldDir) {
-        // Baseline untransformed face directions matching assignedColors[0..5] exactly
-        myglm::vec3 originalFaceDirs[6] = {
-            myglm::vec3(0.0f, 0.0f, -1.0f), // 0: Front (-Z)
-            myglm::vec3(0.0f, 0.0f,  1.0f), // 1: Back (+Z)
-            myglm::vec3(-1.0f, 0.0f, 0.0f), // 2: Left (-X)
-            myglm::vec3( 1.0f, 0.0f, 0.0f), // 3: Right (+X)
-            myglm::vec3(0.0f,  1.0f, 0.0f), // 4: Up (+Y)
-            myglm::vec3(0.0f, -1.0f, 0.0f)  // 5: Down (-Y)
+    // Returns the color currently facing the requested absolute world direction.
+    myglm::vec4 getColorFacingWorldDirection(const myglm::vec3& targetWorldDir) const {
+        // 'static const' prevents the CPU from allocating and destroying this array 
+        // every single time the function is called, significantly boosting performance.
+        static const myglm::vec3 originalFaceDirs[6] = {
+            myglm::vec3( 0.0f,  0.0f, -1.0f), // 0: Back (-Z)  [Corrected from Front]
+            myglm::vec3( 0.0f,  0.0f,  1.0f), // 1: Front (+Z) [Corrected from Back]
+            myglm::vec3(-1.0f,  0.0f,  0.0f), // 2: Left (-X)
+            myglm::vec3( 1.0f,  0.0f,  0.0f), // 3: Right (+X)
+            myglm::vec3( 0.0f,  1.0f,  0.0f), // 4: Up (+Y)
+            myglm::vec3( 0.0f, -1.0f,  0.0f)  // 5: Down (-Y)
         };
 
-        float bestDot = -2.0f;
+        // Initialized to a very low value to safely handle non-normalized, scaled dot products
+        float bestDot = -1000.0f; 
         int matchingFaceIdx = 0;
 
-        for (int i = 0; i < 6; i++) {
-            // 1. Pack the face direction vector into a vec4 (w = 0.0f discards matrix translations)
-            myglm::vec4 directionVec4(originalFaceDirs[i], 0.0f);
+        for (int i = 0; i < 6; ++i) {
+            // 1. Pack direction (w=0 ignores translations) and rotate by the orientation matrix
+            myglm::vec4 transformedVec4 = homeMatrix * myglm::vec4(originalFaceDirs[i], 0.0f);
             
-            // 2. Rotate the vector using the cubie's permanent orientation matrix
-            myglm::vec4 transformedVec4 = homeMatrix * directionVec4;
+            // 2. Extract into vec3 to perform the dot product
+            myglm::vec3 currentWorldDir(transformedVec4.x, transformedVec4.y, transformedVec4.z);
             
-            // 3. Explicitly extract components to avoid implicit vec4-to-vec3 conversion bugs
-            myglm::vec3 currentWorldDirOfSticker(transformedVec4.x, transformedVec4.y, transformedVec4.z);
+            // 3. Measure alignment (acts as a scaled cosine similarity)
+            float dotVal = myglm::dot(currentWorldDir, targetWorldDir);
             
-            // 4. Measure alignment with the requested world direction using a dot product
-            float dotVal = myglm::dot(currentWorldDirOfSticker, targetWorldDir);
             if (dotVal > bestDot) {
                 bestDot = dotVal;
                 matchingFaceIdx = i;
             }
         }
 
-        // Return the stable vec4 color data assigned to that specific physical side
         return faceColors[matchingFaceIdx];
     }
 };
@@ -434,12 +435,12 @@ public:
                     );
 
                     std::vector<myglm::vec4> assignedColors(6, structuralInternalBlack);
-                    if (i == 0) assignedColors[0] = palette[4]; // Front
-                    if (i == 2) assignedColors[1] = palette[2]; // Back
-                    if (k == 0) assignedColors[2] = palette[1]; // Left
-                    if (k == 2) assignedColors[3] = palette[3]; // Right
-                    if (j == 2) assignedColors[4] = palette[0]; // Up
-                    if (j == 0) assignedColors[5] = palette[5]; // Down
+                    if (i == 0) assignedColors[0] = palette[2]; // Back (-Z) is Blue
+                    if (i == 2) assignedColors[1] = palette[4]; // Front (+Z) is Green
+                    if (k == 0) assignedColors[2] = palette[1]; // Left (-X) is Orange
+                    if (k == 2) assignedColors[3] = palette[3]; // Right (+X) is Red
+                    if (j == 2) assignedColors[4] = palette[0]; // Up (+Y) is White
+                    if (j == 0) assignedColors[5] = palette[5]; // Down (-Y) is Yellow
 
                     Cubie* newCubie = new Cubie(targetCubiePos, cubieScale, initialRotation, assignedColors);
                     
@@ -456,37 +457,6 @@ public:
 
     void parseAndQueueMove(const std::string& moveStr) {
         if (moveStr.empty()) return;
-
-        // if (moveStr == "FlipU") {
-        //     parseAndQueueMove("R");
-        //     parseAndQueueMove("L'");
-        //     parseAndQueueMove("M'");
-        //     return;
-        // }
-        // if (moveStr == "FlipD") {
-        //     parseAndQueueMove("R'");
-        //     parseAndQueueMove("L");
-        //     parseAndQueueMove("M");
-        //     return;
-        // }
-        // if (moveStr == "FlipR") {
-        //     parseAndQueueMove("U'");
-        //     parseAndQueueMove("D");
-        //     parseAndQueueMove("E"); // Matches your internal follow-D angle mapping
-        //     return;
-        // }
-        // if (moveStr == "FlipL") {
-        //     parseAndQueueMove("U");
-        //     parseAndQueueMove("D'");
-        //     parseAndQueueMove("E'");
-        //     return;
-        // }
-        // if (moveStr == "Rotate") {
-        //     parseAndQueueMove("F");
-        //     parseAndQueueMove("B'");
-        //     parseAndQueueMove("S");
-        //     return;
-        // }
 
         CubeMove move;
         move.notation = moveStr;
@@ -649,7 +619,7 @@ public:
         if (!isAnimating) return myglm::mat4(1.0f);
         return myglm::rotate(myglm::mat4(1.0f), myglm::radians(animationProgressAngle), currentAnimationAxis);
     }
-
+/*
     char convertVectorColorToChar(const myglm::vec4& color) {
         // Reference your palette values exactly from your constructor setup:
         // palette[0] = White, palette[1] = Orange, palette[2] = Blue, 
@@ -664,7 +634,7 @@ public:
         
         return 'X'; // Internal black or error fallback
     }
-
+*/
     Cubie* getCubieAt(int x, int y, int z) {
         for (Cubie* cubie : cubies) {
             if (cubie->gridX == x && cubie->gridY == y && cubie->gridZ == z) {
@@ -673,7 +643,7 @@ public:
         }
         return nullptr;
     }
-
+/*
     std::string generateFaceletString() {
         std::string faceletString = "";
         faceletString.reserve(54); // Memory optimization allocation
@@ -729,6 +699,98 @@ public:
         }
 
         return faceletString;
+    }
+*/
+    bool getSolverState(uint8_t* solverState) {
+
+        Cubie* cU = getCubieAt(0, 1, 0);
+        Cubie* cL = getCubieAt(-1, 0, 0);
+        Cubie* cF = getCubieAt(0, 0, 1);
+        Cubie* cR = getCubieAt(1, 0, 0);
+        Cubie* cB = getCubieAt(0, 0, -1);
+        Cubie* cD = getCubieAt(0, -1, 0);
+
+        myglm::vec4 uColor = cU->getColorFacingWorldDirection(myglm::vec3(0, 1, 0));
+        myglm::vec4 lColor = cL->getColorFacingWorldDirection(myglm::vec3(-1, 0, 0));
+        myglm::vec4 fColor = cF->getColorFacingWorldDirection(myglm::vec3(0, 0, 1));
+        myglm::vec4 rColor = cR->getColorFacingWorldDirection(myglm::vec3(1, 0, 0));
+        myglm::vec4 bColor = cB->getColorFacingWorldDirection(myglm::vec3(0, 0, -1));
+        myglm::vec4 dColor = cD->getColorFacingWorldDirection(myglm::vec3(0, -1, 0));
+
+        // Helper 1: Map any color to the correct ID based on center parity
+        auto colorToId = [&](const myglm::vec4& c) -> uint8_t {
+            auto dist = [](const myglm::vec4& a, const myglm::vec4& b) {
+                return std::abs(a.x-b.x) + std::abs(a.y-b.y) + std::abs(a.z-b.z);
+            };
+            if (dist(c, uColor) < 0.1f) return 1;
+            if (dist(c, lColor) < 0.1f) return 2;
+            if (dist(c, fColor) < 0.1f) return 3;
+            if (dist(c, rColor) < 0.1f) return 4;
+            if (dist(c, bColor) < 0.1f) return 5;
+            if (dist(c, dColor) < 0.1f) return 6;
+            return 1; // Fallback
+        };
+
+        // Helper 2: Safely extract a cubie from the grid without crashing if it drifts
+        auto safeGetColor = [&](int x, int y, int z, myglm::vec3 dir) -> uint8_t {
+            Cubie* c = getCubieAt(x, y, z);
+            if (!c) {
+                std::cout << "[FATAL ERROR] Missing cubie at Grid(" << x << "," << y << "," << z << ").\n";
+                return 1; // Fallback
+            }
+            return colorToId(c->getColorFacingWorldDirection(dir));
+        };
+
+        // This array translates standard Row-Major loops into the solver's bizarre Spiral layout
+        const int spiralMap[9] = {0, 1, 2, 7, 8, 3, 6, 5, 4};
+        
+        int blockStart = 0;
+        int rmIdx = 0;
+        
+        // 1. U Face (0..8) - Top is Back (-Z), Bottom is Front (+Z). Left is Left (-X).
+        blockStart = 0; rmIdx = 0;
+        for (int z = -1; z <= 1; ++z) 
+            for (int x = -1; x <= 1; ++x) 
+                solverState[blockStart + spiralMap[rmIdx++]] = safeGetColor(x, 1, z, myglm::vec3(0, 1, 0));
+        
+        // 2. L Face (9..17) - Top is Up (+Y). Left is Back (-Z).
+        blockStart = 9; rmIdx = 0;
+        for (int y = 1; y >= -1; --y) 
+            for (int z = -1; z <= 1; ++z) 
+                solverState[blockStart + spiralMap[rmIdx++]] = safeGetColor(-1, y, z, myglm::vec3(-1, 0, 0));
+        
+        // 3. F Face (18..26) - Top is Up (+Y). Left is Left (-X).
+        blockStart = 18; rmIdx = 0;
+        for (int y = 1; y >= -1; --y) 
+            for (int x = -1; x <= 1; ++x) 
+                solverState[blockStart + spiralMap[rmIdx++]] = safeGetColor(x, y, 1, myglm::vec3(0, 0, 1));
+        
+        // 4. R Face (27..35) - Top is Up (+Y). Left is Front (+Z).
+        blockStart = 27; rmIdx = 0;
+        for (int y = 1; y >= -1; --y) 
+            for (int z = 1; z >= -1; --z) 
+                solverState[blockStart + spiralMap[rmIdx++]] = safeGetColor(1, y, z, myglm::vec3(1, 0, 0));
+        
+        // 5. B Face (36..44) - Top is Up (+Y). Left is Right (+X).
+        blockStart = 36; rmIdx = 0;
+        for (int y = 1; y >= -1; --y) 
+            for (int x = 1; x >= -1; --x) 
+                solverState[blockStart + spiralMap[rmIdx++]] = safeGetColor(x, y, -1, myglm::vec3(0, 0, -1));
+        
+        // 6. D Face (45..53) - Top is Front (+Z), Bottom is Back (-Z). Left is Left (-X).
+        blockStart = 45; rmIdx = 0;
+        for (int z = 1; z >= -1; --z) 
+            for (int x = -1; x <= 1; ++x) 
+                solverState[blockStart + spiralMap[rmIdx++]] = safeGetColor(x, -1, z, myglm::vec3(0, -1, 0));
+
+        // DEBUG PRINTER
+        std::cout << "[DEBUG] Generated Spiral Array: \n";
+        for(int i = 0; i < 6; i++) {
+            for(int j = 0; j < 9; j++) std::cout << (int)solverState[i*9 + j] << ", ";
+            std::cout << "\n";
+        }
+
+        return true; 
     }
 
     ~RubikCube() {
@@ -956,12 +1018,18 @@ void queueExternalSolution(const std::string& solutionString) {
     std::stringstream ss(solutionString);
     std::string currentMove;
 
-    std::cout << "[SOLVER BRIDGE] Pushing moves to engine: " << solutionString << std::endl;
+    std::cout << "[SOLVER BRIDGE] Pushing translated moves to engine: " << std::endl;
 
     // Tokenize space-separated solution moves smoothly
     while (ss >> currentMove) {
-        // Feed each individual move token directly into your robust animation queue
+        // Translate the solver's 'i' (inverse) into the visualizer's standard prime symbol '\''
+        if (currentMove.size() > 1 && currentMove[1] == 'i') {
+            currentMove[1] = '\'';
+        }
+        // Feed the standardized move directly into your robust animation queue
         g_RubikInstance->parseAndQueueMove(currentMove);
+        // If you want the solver's moves to be reversible by your 'O' key, uncomment the line below:
+        // g_MoveHistory.push_back(currentMove); 
     }
 }
 
@@ -982,6 +1050,106 @@ std::string getInverseMove(const std::string& move) {
     }
 }
 
+void triggerZZOptimalSolver() {
+    if (!g_RubikInstance || g_RubikInstance->isAnimating) {
+        std::cout << "[SYSTEM] Solver rejected: Cube is currently animating." << std::endl;
+        return;
+    }
+
+    uint8_t solverState[54];
+    
+    // If the 3D grid was corrupted, abort before touching the engine
+    if (!g_RubikInstance->getSolverState(solverState)) {
+        return; 
+    }
+
+    DirectSolveConfig config = make_direct_solve_config(
+        SolverMode::Normal, 
+        PatternPreset::None,
+        false, false, false
+    );
+
+    SolveStats stats = {};
+    std::cout << "[SYSTEM] Running zz-optimal-core solver..." << std::endl;
+    
+    bool ok = app_run_solve_from_state(solverState, config, &stats);
+
+    if (ok) {
+        if (stats.total_moves == 0) {
+            std::cout << "[SUCCESS] Cube is already solved!" << std::endl;
+        } else {
+            std::cout << "[SUCCESS] Solution found in " << stats.total_moves << " moves." << std::endl;
+            queueExternalSolution(stats.solution);
+        }
+    } else {
+        std::cout << "[ERROR] Engine cleanly rejected the array. The physical state is impossible." << std::endl;
+    }
+}
+/*
+void triggerZZOptimalSolver2() {
+    std::cout << "[SYSTEM] Running Hardcoded Diagnostic Test..." << std::endl;
+
+    // A mathematically perfect scramble provided by the zz-optimal-core tutorial
+    const uint8_t test_scramble[54] = {
+        1, 1, 3, 1, 1, 3, 1, 1, 3, 
+        2, 2, 2, 2, 2, 2, 2, 2, 2, 
+        3, 3, 6, 3, 3, 6, 3, 3, 6, 
+        4, 4, 4, 4, 4, 4, 4, 4, 4, 
+        1, 5, 5, 1, 5, 5, 1, 5, 5, 
+        6, 6, 5, 6, 6, 5, 6, 6, 5
+    };
+
+    DirectSolveConfig config = make_direct_solve_config(
+        SolverMode::Normal, 
+        PatternPreset::None,
+        false, false, false
+    );
+
+    SolveStats stats = {};
+    
+    // Execute the solver on the HARDCODED state, ignoring the visualizer
+    bool ok = app_run_solve_from_state(test_scramble, config, &stats);
+
+    if (ok) {
+        std::cout << "[SUCCESS] Engine is working perfectly! Solution: " << stats.solution << std::endl;
+        std::cout << "[CONCLUSION] The silent crash is 100% caused by the visualizer array generation mapping." << std::endl;
+    } else {
+        std::cout << "[ERROR] Engine failed to solve a known valid state." << std::endl;
+    }
+}
+
+void triggerZZOptimalSolver3() {
+    std::cout << "[SYSTEM] Running Hardcoded Diagnostic Test..." << std::endl;
+
+    // A mathematically perfect scramble provided by the zz-optimal-core tutorial
+    const uint8_t test_scramble[54] = {
+        6, 1, 1, 1, 6, 6, 4, 6, 1,
+        4, 4, 1, 2, 1, 5, 1, 3, 2,
+        3, 3, 3, 3, 2, 2, 3, 6, 3,
+        2, 5, 5, 4, 4, 4, 6, 2, 4,
+        2, 2, 5, 1, 4, 4, 6, 1, 5,
+        2, 5, 5, 3, 3, 5, 5, 6, 6
+    };
+
+    DirectSolveConfig config = make_direct_solve_config(
+        SolverMode::Normal, 
+        PatternPreset::None,
+        false, false, false
+    );
+
+    SolveStats stats = {};
+    
+    // Execute the solver on the HARDCODED state, ignoring the visualizer
+    bool ok = app_run_solve_from_state(test_scramble, config, &stats);
+
+    if (ok) {
+        std::cout << "[SUCCESS] Engine is working perfectly! Solution: " << stats.solution << std::endl;
+        std::cout << "[CONCLUSION] The silent crash is 100% caused by the visualizer array generation mapping." << std::endl;
+    } else {
+        std::cout << "[ERROR] Engine failed to solve a known valid state." << std::endl;
+    }
+}
+*/
 void key_callback(GLFWwindow* window, int key, int scancode, int action, int mods) {
     if (!g_SceneInstance || !g_RubikInstance) return;
 
@@ -1067,6 +1235,13 @@ void key_callback(GLFWwindow* window, int key, int scancode, int action, int mod
             // NOTE: You must also update your RubikCube::scramble() function internally 
             // so that it pushes its 20 random moves into g_MoveHistory!
             break;
+
+        case GLFW_KEY_L:
+            uint8_t solverState[54];
+            if (!g_RubikInstance->getSolverState(solverState)) {
+        return; 
+    }
+            break;
             
         case GLFW_KEY_O: // The New History-Stack Solver
             if (!g_RubikInstance->isAnimating && g_RubikInstance->moveQueue.empty()) {
@@ -1091,7 +1266,20 @@ void key_callback(GLFWwindow* window, int key, int scancode, int action, int mod
                 std::cout << "[SYSTEM] Solver rejected: Cube is currently animating or queue is busy." << std::endl;
             }
             break;
-        
+
+        case GLFW_KEY_ENTER:
+            triggerZZOptimalSolver();
+            g_MoveHistory.clear();
+            break;
+/*
+        case GLFW_KEY_M:
+            triggerZZOptimalSolver2();
+            break;
+
+        case GLFW_KEY_N:
+            triggerZZOptimalSolver3();
+            break;
+*/        
         default:
             break;
     }
